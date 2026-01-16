@@ -11,8 +11,19 @@ const TARBALL_NAME = "opencode-offline-linux-x64.tar.gz"
 async function buildOpencode(): Promise<string> {
   console.log("\n=== Building opencode for Linux x64 ===")
 
-  // Use the existing build script with --single flag
-  // This will build for the current platform, or we can modify to build for linux
+  // Install dependencies in packages/opencode first
+  console.log("Installing dependencies...")
+  const installProc = Bun.spawn(["bun", "install"], {
+    cwd: "packages/opencode",
+    stdout: "inherit",
+    stderr: "inherit",
+  })
+  await installProc.exited
+  if (installProc.exitCode !== 0) {
+    throw new Error("Failed to install dependencies")
+  }
+
+  // Use the existing build script
   const proc = Bun.spawn(["bun", "run", "./script/build.ts"], {
     cwd: "packages/opencode",
     stdout: "inherit",
