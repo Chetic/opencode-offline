@@ -9,6 +9,7 @@ import { $ } from "bun"
 
 import { ZipReader, BlobReader, BlobWriter } from "@zip.js/zip.js"
 import { Log } from "@/util/log"
+import { Offline } from "../offline"
 
 export namespace Ripgrep {
   const log = Log.create({ service: "ripgrep" })
@@ -125,6 +126,20 @@ export namespace Ripgrep {
   const state = lazy(async () => {
     let filepath = Bun.which("rg")
     if (filepath) return { filepath }
+
+    // Check offline mode
+    if (Offline.isEnabled()) {
+      const offlinePath = Offline.resolveBinary("rg" + (process.platform === "win32" ? ".exe" : ""), "ripgrep")
+      if (offlinePath) {
+        const offlineFile = Bun.file(offlinePath)
+        if (await offlineFile.exists()) {
+          log.info("using offline ripgrep", { path: offlinePath })
+          return { filepath: offlinePath }
+        }
+      }
+      log.warn("offline mode enabled but ripgrep not found in offline deps")
+    }
+
     filepath = path.join(Global.Path.bin, "rg" + (process.platform === "win32" ? ".exe" : ""))
 
     const file = Bun.file(filepath)

@@ -6,6 +6,7 @@ import { NamedError } from "@opencode-ai/util/error"
 import { readableStreamToText } from "bun"
 import { createRequire } from "module"
 import { Lock } from "../util/lock"
+import { Offline } from "../offline"
 
 export namespace BunProc {
   const log = Log.create({ service: "bun" })
@@ -61,6 +62,19 @@ export namespace BunProc {
   )
 
   export async function install(pkg: string, version = "latest") {
+    // Check for offline mode first
+    if (Offline.isEnabled()) {
+      const offlinePath = Offline.resolveNpmPackage(pkg)
+      if (offlinePath) {
+        const offlineFile = Bun.file(path.join(offlinePath, "package.json"))
+        if (await offlineFile.exists()) {
+          log.info("using offline package", { pkg, path: offlinePath })
+          return offlinePath
+        }
+      }
+      log.warn("offline mode enabled but package not found in offline deps", { pkg })
+    }
+
     // Use lock to ensure only one install at a time
     using _ = await Lock.write("bun-install")
 

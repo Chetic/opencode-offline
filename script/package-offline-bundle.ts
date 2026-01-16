@@ -1,0 +1,188 @@
+#!/usr/bin/env bun
+
+import { $ } from "bun"
+import fs from "fs/promises"
+import path from "path"
+
+const DEPS_DIR = "dist/offline-deps"
+const BUNDLE_DIR = "dist/opencode-offline-linux-x64"
+const TARBALL_NAME = "opencode-offline-linux-x64.tar.gz"
+
+async function buildOpencode(): Promise<void> {
+  console.log("\n=== Building opencode for Linux x64 ===")
+
+  // Build for linux x64
+  const proc = Bun.spawn(
+    ["bun", "build", "--compile", "--target=bun-linux-x64", "./src/cli.ts", "--outfile", "../../dist/opencode-linux-x64"],
+    {
+      cwd: "packages/opencode",
+      stdout: "inherit",
+      stderr: "inherit",
+    }
+  )
+  await proc.exited
+  if (proc.exitCode !== 0) {
+    throw new Error("Failed to build opencode")
+  }
+
+  console.log("Build complete")
+}
+
+async function createBundle(): Promise<void> {
+  console.log("\n=== Creating bundle structure ===")
+
+  // Clean and create bundle directory
+  await fs.rm(BUNDLE_DIR, { recursive: true, force: true })
+  await fs.mkdir(path.join(BUNDLE_DIR, "bin"), { recursive: true })
+  await fs.mkdir(path.join(BUNDLE_DIR, "deps"), { recursive: true })
+
+  // Copy opencode binary
+  console.log("Copying opencode binary...")
+  await fs.copyFile("dist/opencode-linux-x64", path.join(BUNDLE_DIR, "bin", "opencode"))
+  await fs.chmod(path.join(BUNDLE_DIR, "bin", "opencode"), 0o755)
+
+  // Copy deps
+  console.log("Copying dependencies...")
+  await $`cp -r ${DEPS_DIR}/* ${path.join(BUNDLE_DIR, "deps")}/`
+
+  // Copy manifest to root
+  await fs.copyFile(
+    path.join(DEPS_DIR, "manifest.json"),
+    path.join(BUNDLE_DIR, "manifest.json")
+  )
+
+  console.log("Bundle structure created")
+}
+
+async function createWrapperScript(): Promise<void> {
+  console.log("\n=== Creating wrapper script ===")
+
+  const wrapperScript = `#!/bin/bash
+# OpenCode Offline Wrapper Script
+# Sets up environment variables for offline mode and runs opencode
+
+SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+
+export OPENCODE_OFFLINE_MODE=true
+export OPENCODE_OFFLINE_DEPS_PATH="\$SCRIPT_DIR/deps"
+export OPENCODE_DISABLE_AUTOUPDATE=true
+export OPENCODE_DISABLE_LSP_DOWNLOAD=true
+
+exec "\$SCRIPT_DIR/bin/opencode" "\$@"
+`
+
+  await Bun.write(path.join(BUNDLE_DIR, "opencode-offline"), wrapperScript)
+  await fs.chmod(path.join(BUNDLE_DIR, "opencode-offline"), 0o755)
+
+  console.log("Wrapper script created")
+}
+
+async function createReadme(): Promise<void> {
+  console.log("\n=== Creating README ===")
+
+  const readme = `# OpenCode Offline Bundle
+
+This is a self-contained offline bundle of OpenCode for Linux x64 (RHEL9 compatible).
+
+## Contents
+
+- \`bin/opencode\` - Main OpenCode binary
+- \`deps/\` - Pre-bundled dependencies
+  - \`ripgrep/\` - Ripgrep binary for fast file searching
+  - \`lsp/\` - Language server binaries (clangd, rust-analyzer)
+  - \`node_modules/\` - npm packages (pyright, typescript, etc.)
+- \`manifest.json\` - Version information for all bundled components
+- \`opencode-offline\` - Wrapper script that sets up the environment
+
+## Usage
+
+### Option 1: Use the wrapper script (recommended)
+
+\`\`\`bash
+./opencode-offline
+\`\`\`
+
+### Option 2: Set environment variables manually
+
+\`\`\`bash
+export OPENCODE_OFFLINE_MODE=true
+export OPENCODE_OFFLINE_DEPS_PATH=/path/to/deps
+./bin/opencode
+\`\`\`
+
+## Supported Languages
+
+This bundle includes LSP support for:
+- **Python** - via Pyright
+- **TypeScript/JavaScript** - via typescript-language-server
+- **C/C++** - via clangd
+- **Rust** - via rust-analyzer
+
+## Environment Variables
+
+- \`OPENCODE_OFFLINE_MODE\` - Set to \`true\` to enable offline mode
+- \`OPENCODE_OFFLINE_DEPS_PATH\` - Path to the deps directory
+- \`OPENCODE_DISABLE_AUTOUPDATE\` - Set to \`true\` to disable auto-updates
+- \`OPENCODE_DISABLE_LSP_DOWNLOAD\` - Set to \`true\` to prevent LSP downloads
+`
+
+  await Bun.write(path.join(BUNDLE_DIR, "README.md"), readme)
+
+  console.log("README created")
+}
+
+async function createTarball(): Promise<void> {
+  console.log("\n=== Creating tarball ===")
+
+  const tarballPath = path.join("dist", TARBALL_NAME)
+
+  // Remove existing tarball
+  await fs.unlink(tarballPath).catch(() => {})
+
+  // Create tarball
+  const proc = Bun.spawn(
+    ["tar", "-czf", TARBALL_NAME, "opencode-offline-linux-x64"],
+    {
+      cwd: "dist",
+      stdout: "inherit",
+      stderr: "inherit",
+    }
+  )
+  await proc.exited
+  if (proc.exitCode !== 0) {
+    throw new Error("Failed to create tarball")
+  }
+
+  // Get tarball size
+  const stats = await fs.stat(tarballPath)
+  const sizeMB = (stats.size / (1024 * 1024)).toFixed(2)
+
+  console.log(`Tarball created: ${tarballPath} (${sizeMB} MB)`)
+}
+
+async function main() {
+  console.log("=== OpenCode Offline Bundle Packager ===")
+
+  // Check if deps exist
+  const depsExist = await fs.stat(DEPS_DIR).catch(() => null)
+  if (!depsExist) {
+    console.error(`Error: Dependencies not found at ${DEPS_DIR}`)
+    console.error("Please run 'bun run script/download-offline-deps.ts' first")
+    process.exit(1)
+  }
+
+  await buildOpencode()
+  await createBundle()
+  await createWrapperScript()
+  await createReadme()
+  await createTarball()
+
+  console.log("\n=== Packaging complete ===")
+  console.log(`Bundle directory: ${BUNDLE_DIR}`)
+  console.log(`Tarball: dist/${TARBALL_NAME}`)
+}
+
+main().catch((err) => {
+  console.error("Error:", err)
+  process.exit(1)
+})

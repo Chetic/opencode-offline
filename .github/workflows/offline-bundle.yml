@@ -1,0 +1,73 @@
+name: Build Offline Bundle
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag for the bundle"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Download offline dependencies
+        run: bun run script/download-offline-deps.ts
+
+      - name: Build and package bundle
+        run: bun run script/package-offline-bundle.ts
+
+      - name: Add version to manifest
+        run: |
+          cd dist/opencode-offline-linux-x64
+          jq '.bundleVersion = "${{ inputs.version }}"' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
+
+      - name: Upload to Google Drive
+        uses: adityak74/google-drive-upload-git-action@main
+        with:
+          credentials: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
+          filename: dist/opencode-offline-linux-x64.tar.gz
+          folderId: ${{ secrets.GDRIVE_FOLDER_ID }}
+          name: opencode-offline-linux-x64-${{ inputs.version }}.tar.gz
+          overwrite: true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-offline-linux-x64-${{ inputs.version }}
+          path: dist/opencode-offline-linux-x64.tar.gz
+          retention-days: 30
+
+      - name: Summary
+        run: |
+          echo "## Offline Bundle Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Bundle Contents" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          tar -tzf dist/opencode-offline-linux-x64.tar.gz | head -50 >> $GITHUB_STEP_SUMMARY
+          echo "..." >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Manifest" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+          cat dist/opencode-offline-linux-x64/manifest.json >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Size:** $(du -h dist/opencode-offline-linux-x64.tar.gz | cut -f1)" >> $GITHUB_STEP_SUMMARY

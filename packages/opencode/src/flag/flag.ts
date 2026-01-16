@@ -5,6 +5,10 @@ export namespace Flag {
   export const OPENCODE_CONFIG_DIR = process.env["OPENCODE_CONFIG_DIR"]
   export const OPENCODE_CONFIG_CONTENT = process.env["OPENCODE_CONFIG_CONTENT"]
   export const OPENCODE_DISABLE_AUTOUPDATE = truthy("OPENCODE_DISABLE_AUTOUPDATE")
+
+  // Offline mode flags
+  export const OPENCODE_OFFLINE_MODE = truthy("OPENCODE_OFFLINE_MODE")
+  export const OPENCODE_OFFLINE_DEPS_PATH = process.env["OPENCODE_OFFLINE_DEPS_PATH"]
   export const OPENCODE_DISABLE_PRUNE = truthy("OPENCODE_DISABLE_PRUNE")
   export const OPENCODE_DISABLE_TERMINAL_TITLE = truthy("OPENCODE_DISABLE_TERMINAL_TITLE")
   export const OPENCODE_PERMISSION = process.env["OPENCODE_PERMISSION"]

@@ -10,6 +10,7 @@ import { Filesystem } from "../util/filesystem"
 import { Instance } from "../project/instance"
 import { Flag } from "../flag/flag"
 import { Archive } from "../util/archive"
+import { Offline } from "../offline"
 
 export namespace LSPServer {
   const log = Log.create({ service: "lsp.server" })
@@ -94,7 +95,36 @@ export namespace LSPServer {
     ),
     extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts"],
     async spawn(root) {
-      const tsserver = await Bun.resolve("typescript/lib/tsserver.js", Instance.directory).catch(() => {})
+      let tsserver = await Bun.resolve("typescript/lib/tsserver.js", Instance.directory).catch(() => {})
+
+      // Check offline mode
+      if (Offline.isEnabled()) {
+        const offlineTsPath = Offline.resolveNpmPackage("typescript")
+        const offlineTsLspPath = Offline.resolveNpmPackage("typescript-language-server")
+        if (offlineTsPath && offlineTsLspPath) {
+          const offlineTsServer = path.join(offlineTsPath, "lib", "tsserver.js")
+          const offlineTsLspJs = path.join(offlineTsLspPath, "lib", "cli.mjs")
+          if ((await Bun.file(offlineTsServer).exists()) && (await Bun.file(offlineTsLspJs).exists())) {
+            log.info("using offline typescript-language-server", { tsserver: offlineTsServer, lsp: offlineTsLspJs })
+            const proc = spawn(BunProc.which(), ["run", offlineTsLspJs, "--stdio"], {
+              cwd: root,
+              env: {
+                ...process.env,
+                BUN_BE_BUN: "1",
+              },
+            })
+            return {
+              process: proc,
+              initialization: {
+                tsserver: {
+                  path: offlineTsServer,
+                },
+              },
+            }
+          }
+        }
+      }
+
       log.info("typescript server", { tsserver })
       if (!tsserver) return
       const proc = spawn(BunProc.which(), ["x", "typescript-language-server", "--stdio"], {
@@ -509,6 +539,20 @@ export namespace LSPServer {
     async spawn(root) {
       let binary = Bun.which("pyright-langserver")
       const args = []
+
+      // Check offline mode first
+      if (!binary && Offline.isEnabled()) {
+        const offlinePath = Offline.resolveNpmPackage("pyright")
+        if (offlinePath) {
+          const offlineJs = path.join(offlinePath, "dist", "pyright-langserver.js")
+          if (await Bun.file(offlineJs).exists()) {
+            log.info("using offline pyright", { path: offlineJs })
+            binary = BunProc.which()
+            args.push(...["run", offlineJs])
+          }
+        }
+      }
+
       if (!binary) {
         const js = path.join(Global.Path.bin, "node_modules", "pyright", "dist", "pyright-langserver.js")
         if (!(await Bun.file(js).exists())) {
@@ -877,6 +921,20 @@ export namespace LSPServer {
     },
     extensions: [".rs"],
     async spawn(root) {
+      // Check offline mode first
+      if (Offline.isEnabled()) {
+        const ext = process.platform === "win32" ? ".exe" : ""
+        const offlinePath = Offline.resolveLspBinary("rust-analyzer", "rust-analyzer" + ext)
+        if (offlinePath && (await Bun.file(offlinePath).exists())) {
+          log.info("using offline rust-analyzer", { path: offlinePath })
+          return {
+            process: spawn(offlinePath, {
+              cwd: root,
+            }),
+          }
+        }
+      }
+
       const bin = Bun.which("rust-analyzer")
       if (!bin) {
         log.info("rust-analyzer not found in path, please install it")
@@ -896,6 +954,21 @@ export namespace LSPServer {
     extensions: [".c", ".cpp", ".cc", ".cxx", ".c++", ".h", ".hpp", ".hh", ".hxx", ".h++"],
     async spawn(root) {
       const args = ["--background-index", "--clang-tidy"]
+
+      // Check offline mode first
+      if (Offline.isEnabled()) {
+        const ext = process.platform === "win32" ? ".exe" : ""
+        const offlinePath = Offline.resolveLspBinary("clangd", "clangd" + ext)
+        if (offlinePath && (await Bun.file(offlinePath).exists())) {
+          log.info("using offline clangd", { path: offlinePath })
+          return {
+            process: spawn(offlinePath, args, {
+              cwd: root,
+            }),
+          }
+        }
+      }
+
       const fromPath = Bun.which("clangd")
       if (fromPath) {
         return {
