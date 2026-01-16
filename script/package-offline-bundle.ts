@@ -8,27 +8,38 @@ const DEPS_DIR = "dist/offline-deps"
 const BUNDLE_DIR = "dist/opencode-offline-linux-x64"
 const TARBALL_NAME = "opencode-offline-linux-x64.tar.gz"
 
-async function buildOpencode(): Promise<void> {
+async function buildOpencode(): Promise<string> {
   console.log("\n=== Building opencode for Linux x64 ===")
 
-  // Build for linux x64
-  const proc = Bun.spawn(
-    ["bun", "build", "--compile", "--target=bun-linux-x64", "./src/cli.ts", "--outfile", "../../dist/opencode-linux-x64"],
-    {
-      cwd: "packages/opencode",
-      stdout: "inherit",
-      stderr: "inherit",
-    }
-  )
+  // Use the existing build script with --single flag
+  // This will build for the current platform, or we can modify to build for linux
+  const proc = Bun.spawn(["bun", "run", "./script/build.ts"], {
+    cwd: "packages/opencode",
+    stdout: "inherit",
+    stderr: "inherit",
+    env: {
+      ...process.env,
+    },
+  })
   await proc.exited
   if (proc.exitCode !== 0) {
     throw new Error("Failed to build opencode")
   }
 
-  console.log("Build complete")
+  // Find the linux-x64 binary
+  const distDir = "packages/opencode/dist"
+  const entries = await fs.readdir(distDir)
+  const linuxX64Dir = entries.find(e => e.includes("linux") && e.includes("x64") && !e.includes("baseline") && !e.includes("musl"))
+
+  if (!linuxX64Dir) {
+    throw new Error("Could not find linux-x64 build output")
+  }
+
+  console.log(`Build complete: ${linuxX64Dir}`)
+  return path.join(distDir, linuxX64Dir)
 }
 
-async function createBundle(): Promise<void> {
+async function createBundle(buildDir: string): Promise<void> {
   console.log("\n=== Creating bundle structure ===")
 
   // Clean and create bundle directory
@@ -38,7 +49,8 @@ async function createBundle(): Promise<void> {
 
   // Copy opencode binary
   console.log("Copying opencode binary...")
-  await fs.copyFile("dist/opencode-linux-x64", path.join(BUNDLE_DIR, "bin", "opencode"))
+  const binaryPath = path.join(buildDir, "bin", "opencode")
+  await fs.copyFile(binaryPath, path.join(BUNDLE_DIR, "bin", "opencode"))
   await fs.chmod(path.join(BUNDLE_DIR, "bin", "opencode"), 0o755)
 
   // Copy deps
@@ -171,8 +183,8 @@ async function main() {
     process.exit(1)
   }
 
-  await buildOpencode()
-  await createBundle()
+  const buildDir = await buildOpencode()
+  await createBundle(buildDir)
   await createWrapperScript()
   await createReadme()
   await createTarball()
