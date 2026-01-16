@@ -38,6 +38,8 @@ jobs:
           jq '.bundleVersion = "${{ inputs.version }}"' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
 
       - name: Upload to Google Drive
+        # Skip if credentials not configured - artifact will still be available
+        continue-on-error: true
         uses: adityak74/google-drive-upload-git-action@main
         with:
           credentials: ${{ secrets.GDRIVE_SERVICE_ACCOUNT }}
