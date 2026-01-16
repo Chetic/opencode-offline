@@ -3,7 +3,6 @@
 import { $ } from "bun"
 import fs from "fs/promises"
 import path from "path"
-import { ZipReader, BlobReader, BlobWriter } from "@zip.js/zip.js"
 
 const DEPS_DIR = "dist/offline-deps"
 const RIPGREP_VERSION = "14.1.1"
@@ -45,16 +44,15 @@ async function extractTarGz(archivePath: string, destDir: string, stripComponent
 }
 
 async function extractZip(archivePath: string, destDir: string): Promise<void> {
-  const zipFileReader = new ZipReader(new BlobReader(new Blob([await Bun.file(archivePath).arrayBuffer()])))
-  const entries = await zipFileReader.getEntries()
-  for (const entry of entries) {
-    if (entry.directory) continue
-    const destPath = path.join(destDir, entry.filename)
-    await fs.mkdir(path.dirname(destPath), { recursive: true })
-    const blob = await entry.getData!(new BlobWriter())
-    await Bun.write(destPath, await blob.arrayBuffer())
+  const proc = Bun.spawn(["unzip", "-o", "-q", archivePath, "-d", destDir], {
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  await proc.exited
+  if (proc.exitCode !== 0) {
+    const stderr = await Bun.readableStreamToText(proc.stderr)
+    throw new Error(`Failed to extract ${archivePath}: ${stderr}`)
   }
-  await zipFileReader.close()
 }
 
 async function downloadRipgrep(): Promise<string> {
