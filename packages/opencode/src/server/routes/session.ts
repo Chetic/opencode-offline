@@ -387,7 +387,8 @@ export const SessionRoutes = lazy(() =>
       "/:sessionID/dump-request",
       describeRoute({
         summary: "Dump last LLM request",
-        description: "Save the last HTTP request to ~/.opencode/last-request.sh as a curl command for debugging",
+        description:
+          "Save the last HTTP request as a reusable script and JSON payload in ~/.opencode/debug/ for debugging",
         operationId: "session.dumpRequest",
         responses: {
           200: {
@@ -397,7 +398,8 @@ export const SessionRoutes = lazy(() =>
                 schema: resolver(
                   z.object({
                     success: z.boolean(),
-                    filePath: z.string().optional(),
+                    scriptPath: z.string().optional(),
+                    jsonPath: z.string().optional(),
                     error: z.string().optional(),
                   }),
                 ),
@@ -420,12 +422,42 @@ export const SessionRoutes = lazy(() =>
           return c.json({ success: false, error: "No request captured for this session" })
         }
 
-        const curl = RequestCapture.toCurl(request, { includeAuth: true })
-        const filePath = path.join(os.homedir(), ".opencode", "last-request.sh")
-        await fs.mkdir(path.dirname(filePath), { recursive: true })
-        await fs.writeFile(filePath, `#!/bin/sh\n${curl}\n`, { mode: 0o755 })
+        // Get session info for slug
+        const session = await Session.get(sessionID)
+        const slug = session.slug
 
-        return c.json({ success: true, filePath })
+        // Get parent slug if this is a forked session
+        let parentSlug: string | undefined
+        if (session.parentID) {
+          const parentSession = await Session.get(session.parentID)
+          parentSlug = parentSession.slug
+        }
+
+        // Generate curl command that uses file parameter
+        const curl = RequestCapture.toCurl(request, { includeAuth: true, useFileParameter: true })
+        const script = RequestCapture.generateScript(curl)
+
+        // Generate JSON filename with session lineage
+        const jsonFilename = RequestCapture.generateJsonFilename({
+          slug,
+          parentSlug,
+          timestamp: request.timestamp,
+        })
+
+        // Create debug directory
+        const debugDir = path.join(os.homedir(), ".opencode", "debug")
+        await fs.mkdir(debugDir, { recursive: true })
+
+        // Write script
+        const scriptPath = path.join(debugDir, "llm-request.sh")
+        await fs.writeFile(scriptPath, script, { mode: 0o755 })
+
+        // Write formatted JSON payload
+        const jsonPath = path.join(debugDir, jsonFilename)
+        const formattedBody = RequestCapture.getFormattedBody(request)
+        await fs.writeFile(jsonPath, formattedBody)
+
+        return c.json({ success: true, scriptPath, jsonPath })
       },
     )
     .post(

@@ -3008,7 +3008,8 @@ export type SessionDumpRequestResponses = {
    */
   200: {
     success: boolean
-    filePath?: string
+    scriptPath?: string
+    jsonPath?: string
     error?: string
   }
 }

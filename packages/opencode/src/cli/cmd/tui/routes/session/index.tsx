@@ -375,10 +375,11 @@ export function Session() {
       category: "Debug",
       onSelect: async (dialog) => {
         const response = await sdk.client.session.dumpRequest({ sessionID: route.sessionID })
-        if (response.data?.success && response.data.filePath) {
+        if (response.data?.success && response.data.scriptPath && response.data.jsonPath) {
+          const jsonFilename = path.basename(response.data.jsonPath)
           toast.show({
             variant: "success",
-            message: `Curl command saved to ${response.data.filePath}`,
+            message: `Run: ${response.data.scriptPath} ${jsonFilename}`,
             duration: 5000,
           })
         } else {

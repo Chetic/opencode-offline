@@ -1106,7 +1106,7 @@ export class Session extends HeyApiClient {
   /**
    * Dump last LLM request
    *
-   * Save the last HTTP request to ~/.opencode/last-request.sh as a curl command for debugging
+   * Save the last HTTP request as a reusable script and JSON payload in ~/.opencode/debug/ for debugging
    */
   public dumpRequest<ThrowOnError extends boolean = false>(
     parameters: {
