@@ -654,6 +654,30 @@ export default function Page() {
       disabled: !params.id || visibleUserMessages().length === 0,
       onSelect: () => dialog.show(() => <DialogFork />),
     },
+    {
+      id: "session.curl",
+      title: "Dump last request as curl",
+      description: "Save the last HTTP request to LLM as a curl command",
+      category: "Debug",
+      slash: "curl",
+      disabled: !params.id,
+      onSelect: async () => {
+        const sessionID = params.id
+        if (!sessionID) return
+        const response = await sdk.client.session.dumpRequest({ sessionID })
+        if (response.data?.success && response.data.filePath) {
+          showToast({
+            title: "Request saved",
+            description: `Curl command saved to ${response.data.filePath}`,
+          })
+        } else {
+          showToast({
+            title: "No request found",
+            description: response.data?.error || "No HTTP request has been captured for this session",
+          })
+        }
+      },
+    },
   ])
 
   const handleKeyDown = (event: KeyboardEvent) => {

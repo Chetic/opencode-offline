@@ -198,6 +198,8 @@ export namespace LLM {
       maxOutputTokens,
       abortSignal: input.abort,
       headers: {
+        // Always include session ID for request capture (debugging)
+        "x-opencode-session": input.sessionID,
         ...(isCodex
           ? {
               originator: "opencode",
@@ -208,7 +210,6 @@ export namespace LLM {
         ...(input.model.providerID.startsWith("opencode")
           ? {
               "x-opencode-project": Instance.project.id,
-              "x-opencode-session": input.sessionID,
               "x-opencode-request": input.user.id,
               "x-opencode-client": Flag.OPENCODE_CLIENT,
             }

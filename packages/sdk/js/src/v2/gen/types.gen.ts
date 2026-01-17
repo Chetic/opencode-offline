@@ -2975,6 +2975,46 @@ export type SessionAbortResponses = {
 
 export type SessionAbortResponse = SessionAbortResponses[keyof SessionAbortResponses]
 
+export type SessionDumpRequestData = {
+  body?: never
+  path: {
+    /**
+     * Session ID
+     */
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+  }
+  url: "/session/{sessionID}/dump-request"
+}
+
+export type SessionDumpRequestErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+  /**
+   * Not found
+   */
+  404: NotFoundError
+}
+
+export type SessionDumpRequestError = SessionDumpRequestErrors[keyof SessionDumpRequestErrors]
+
+export type SessionDumpRequestResponses = {
+  /**
+   * Successfully dumped request
+   */
+  200: {
+    success: boolean
+    filePath?: string
+    error?: string
+  }
+}
+
+export type SessionDumpRequestResponse = SessionDumpRequestResponses[keyof SessionDumpRequestResponses]
+
 export type SessionUnshareData = {
   body?: never
   path: {

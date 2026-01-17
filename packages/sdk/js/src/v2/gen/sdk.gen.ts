@@ -102,6 +102,8 @@ import type {
   SessionDeleteErrors,
   SessionDeleteResponses,
   SessionDiffResponses,
+  SessionDumpRequestErrors,
+  SessionDumpRequestResponses,
   SessionForkResponses,
   SessionGetErrors,
   SessionGetResponses,
@@ -1096,6 +1098,36 @@ export class Session extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<SessionAbortResponses, SessionAbortErrors, ThrowOnError>({
       url: "/session/{sessionID}/abort",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Dump last LLM request
+   *
+   * Save the last HTTP request to ~/.opencode/last-request.sh as a curl command for debugging
+   */
+  public dumpRequest<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionDumpRequestResponses, SessionDumpRequestErrors, ThrowOnError>({
+      url: "/session/{sessionID}/dump-request",
       ...options,
       ...params,
     })

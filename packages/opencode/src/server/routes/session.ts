@@ -16,6 +16,10 @@ import { Log } from "../../util/log"
 import { PermissionNext } from "@/permission/next"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { RequestCapture } from "../../session/request-capture"
+import * as path from "node:path"
+import * as os from "node:os"
+import * as fs from "node:fs/promises"
 
 const log = Log.create({ service: "server" })
 
@@ -377,6 +381,51 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         SessionPrompt.cancel(c.req.valid("param").sessionID)
         return c.json(true)
+      },
+    )
+    .post(
+      "/:sessionID/dump-request",
+      describeRoute({
+        summary: "Dump last LLM request",
+        description: "Save the last HTTP request to ~/.opencode/last-request.sh as a curl command for debugging",
+        operationId: "session.dumpRequest",
+        responses: {
+          200: {
+            description: "Successfully dumped request",
+            content: {
+              "application/json": {
+                schema: resolver(
+                  z.object({
+                    success: z.boolean(),
+                    filePath: z.string().optional(),
+                    error: z.string().optional(),
+                  }),
+                ),
+              },
+            },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator(
+        "param",
+        z.object({
+          sessionID: z.string().meta({ description: "Session ID" }),
+        }),
+      ),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const request = RequestCapture.get(sessionID)
+        if (!request) {
+          return c.json({ success: false, error: "No request captured for this session" })
+        }
+
+        const curl = RequestCapture.toCurl(request, { includeAuth: true })
+        const filePath = path.join(os.homedir(), ".opencode", "last-request.sh")
+        await fs.mkdir(path.dirname(filePath), { recursive: true })
+        await fs.writeFile(filePath, `#!/bin/sh\n${curl}\n`, { mode: 0o755 })
+
+        return c.json({ success: true, filePath })
       },
     )
     .post(

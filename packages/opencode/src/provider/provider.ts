@@ -37,6 +37,7 @@ import { createPerplexity } from "@ai-sdk/perplexity"
 import { createVercel } from "@ai-sdk/vercel"
 import { createGitLab } from "@gitlab/gitlab-ai-provider"
 import { ProviderTransform } from "./transform"
+import { RequestCapture } from "../session/request-capture"
 
 export namespace Provider {
   const log = Log.create({ service: "provider" })
@@ -1015,6 +1016,21 @@ export namespace Provider {
             }
             opts.body = JSON.stringify(body)
           }
+        }
+
+        // Capture request for debugging (only if we have a session ID)
+        const headers = (opts.headers || {}) as Record<string, string>
+        const sessionID = headers["x-opencode-session"]
+        if (sessionID) {
+          const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url
+          RequestCapture.capture({
+            sessionID,
+            timestamp: Date.now(),
+            url,
+            method: opts.method || "GET",
+            headers,
+            body: (opts.body as string) || "",
+          })
         }
 
         return fetchFn(input, {
