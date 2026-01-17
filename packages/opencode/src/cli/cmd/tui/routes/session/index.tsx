@@ -370,6 +370,28 @@ export function Session() {
       },
     },
     {
+      title: "Dump last request as curl",
+      value: "session.curl",
+      category: "Debug",
+      onSelect: async (dialog) => {
+        const response = await sdk.client.session.dumpRequest({ sessionID: route.sessionID })
+        if (response.data?.success && response.data.filePath) {
+          toast.show({
+            variant: "success",
+            message: `Curl command saved to ${response.data.filePath}`,
+            duration: 5000,
+          })
+        } else {
+          toast.show({
+            variant: "warning",
+            message: response.data?.error || "No HTTP request has been captured for this session",
+            duration: 5000,
+          })
+        }
+        dialog.clear()
+      },
+    },
+    {
       title: "Compact session",
       value: "session.compact",
       keybind: "session_compact",

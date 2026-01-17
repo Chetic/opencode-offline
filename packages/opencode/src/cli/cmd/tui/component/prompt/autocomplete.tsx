@@ -401,6 +401,11 @@ export function Autocomplete(props: {
           onSelect: () => command.trigger("session.fork"),
         },
         {
+          display: "/curl",
+          description: "dump last request as curl",
+          onSelect: () => command.trigger("session.curl"),
+        },
+        {
           display: "/thinking",
           description: "toggle thinking visibility",
           onSelect: () => command.trigger("session.toggle.thinking"),
