@@ -5,6 +5,7 @@ import z from "zod"
 import { data } from "./models-macro" with { type: "macro" }
 import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
+import { Offline } from "../offline"
 
 export namespace ModelsDev {
   const log = Log.create({ service: "models.dev" })
@@ -77,6 +78,31 @@ export namespace ModelsDev {
   export type Provider = z.infer<typeof Provider>
 
   export async function get() {
+    // In offline mode, use bundled models or cached file only - never fetch
+    if (Offline.isEnabled() || Flag.OPENCODE_DISABLE_MODELS_FETCH) {
+      // First try bundled models from offline deps
+      const offlineModels = Offline.getDepsPath()
+      if (offlineModels) {
+        const offlineFile = Bun.file(path.join(offlineModels, "models.json"))
+        const offlineResult = await offlineFile.json().catch(() => {})
+        if (offlineResult) return offlineResult as Record<string, Provider>
+      }
+
+      // Fall back to cache
+      const file = Bun.file(filepath)
+      const result = await file.json().catch(() => {})
+      if (result) return result as Record<string, Provider>
+
+      // Fall back to macro (build-time embedded data)
+      if (typeof data === "function") {
+        const json = await data()
+        return JSON.parse(json) as Record<string, Provider>
+      }
+
+      throw new Error("No models data available in offline mode")
+    }
+
+    // Online mode - existing behavior
     refresh()
     const file = Bun.file(filepath)
     const result = await file.json().catch(() => {})
@@ -109,4 +135,8 @@ export namespace ModelsDev {
   }
 }
 
-setInterval(() => ModelsDev.refresh(), 60 * 1000 * 60).unref()
+setInterval(() => {
+  if (!Offline.isEnabled() && !Flag.OPENCODE_DISABLE_MODELS_FETCH) {
+    ModelsDev.refresh()
+  }
+}, 60 * 1000 * 60).unref()

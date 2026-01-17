@@ -209,6 +209,14 @@ async function installNpmPackages(): Promise<Record<string, string>> {
   return versions
 }
 
+async function downloadModelsJson(): Promise<void> {
+  console.log("\n=== Downloading models.json ===")
+  const url = "https://models.dev/api.json"
+  const destPath = path.join(DEPS_DIR, "models.json")
+  await downloadFile(url, destPath)
+  console.log("models.json downloaded successfully")
+}
+
 async function createManifest(
   ripgrepVersion: string,
   clangdVersion: string,
@@ -251,6 +259,7 @@ async function main() {
   const clangdVersion = await downloadClangd()
   const rustAnalyzerVersion = await downloadRustAnalyzer()
   const npmVersions = await installNpmPackages()
+  await downloadModelsJson()
 
   // Create manifest
   await createManifest(ripgrepVersion, clangdVersion, rustAnalyzerVersion, npmVersions)

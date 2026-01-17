@@ -96,6 +96,7 @@ export OPENCODE_OFFLINE_MODE=true
 export OPENCODE_OFFLINE_DEPS_PATH="\$SCRIPT_DIR/deps"
 export OPENCODE_DISABLE_AUTOUPDATE=true
 export OPENCODE_DISABLE_LSP_DOWNLOAD=true
+export OPENCODE_DISABLE_MODELS_FETCH=true
 
 exec "\$SCRIPT_DIR/bin/opencode" "\$@"
 `
@@ -153,6 +154,7 @@ This bundle includes LSP support for:
 - \`OPENCODE_OFFLINE_DEPS_PATH\` - Path to the deps directory
 - \`OPENCODE_DISABLE_AUTOUPDATE\` - Set to \`true\` to disable auto-updates
 - \`OPENCODE_DISABLE_LSP_DOWNLOAD\` - Set to \`true\` to prevent LSP downloads
+- \`OPENCODE_DISABLE_MODELS_FETCH\` - Set to \`true\` to prevent fetching models from models.dev
 
 ## Troubleshooting
 
