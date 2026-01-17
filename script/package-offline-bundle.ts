@@ -68,6 +68,12 @@ async function createBundle(buildDir: string): Promise<void> {
   console.log("Copying dependencies...")
   await $`cp -r ${DEPS_DIR}/* ${path.join(BUNDLE_DIR, "deps")}/`
 
+  // Copy OpenTUI native library
+  console.log("Copying OpenTUI native library...")
+  const opentuiSoPath = "node_modules/.bun/@opentui+core-linux-x64@0.1.74/node_modules/@opentui/core-linux-x64/libopentui.so"
+  await fs.mkdir(path.join(BUNDLE_DIR, "deps", "opentui"), { recursive: true })
+  await fs.copyFile(opentuiSoPath, path.join(BUNDLE_DIR, "deps", "opentui", "libopentui.so"))
+
   // Copy manifest to root
   await fs.copyFile(
     path.join(DEPS_DIR, "manifest.json"),
@@ -147,6 +153,14 @@ This bundle includes LSP support for:
 - \`OPENCODE_OFFLINE_DEPS_PATH\` - Path to the deps directory
 - \`OPENCODE_DISABLE_AUTOUPDATE\` - Set to \`true\` to disable auto-updates
 - \`OPENCODE_DISABLE_LSP_DOWNLOAD\` - Set to \`true\` to prevent LSP downloads
+
+## Troubleshooting
+
+### /tmp mounted with noexec
+This bundle includes a pre-extracted OpenTUI native library in \`deps/opentui/\`.
+When \`OPENCODE_OFFLINE_DEPS_PATH\` is set (done automatically by the wrapper script),
+the application will load this library directly, bypassing the /tmp extraction
+that would otherwise fail on systems with noexec /tmp.
 `
 
   await Bun.write(path.join(BUNDLE_DIR, "README.md"), readme)

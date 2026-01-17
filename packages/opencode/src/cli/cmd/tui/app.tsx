@@ -1,6 +1,6 @@
 import { render, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { Clipboard } from "@tui/util/clipboard"
-import { TextAttributes } from "@opentui/core"
+import { TextAttributes, setRenderLibPath } from "@opentui/core"
 import { RouteProvider, useRoute } from "@tui/context/route"
 import { Switch, Match, createEffect, untrack, ErrorBoundary, createSignal, onMount, batch, Show, on } from "solid-js"
 import { Installation } from "@/installation"
@@ -34,6 +34,8 @@ import { KVProvider, useKV } from "./context/kv"
 import { Provider } from "@/provider/provider"
 import { ArgsProvider, useArgs, type Args } from "./context/args"
 import open from "open"
+import path from "path"
+import { existsSync } from "fs"
 import { writeHeapSnapshot } from "v8"
 import { PromptRefProvider, usePromptRef } from "./context/prompt"
 
@@ -98,6 +100,18 @@ async function getTerminalBackgroundColor(): Promise<"dark" | "light"> {
 }
 
 import type { EventSource } from "./context/sdk"
+
+// Configure OpenTUI to use externally bundled library (for noexec /tmp environments)
+function initOpenTuiLibPath() {
+  const depsPath = process.env.OPENCODE_OFFLINE_DEPS_PATH
+  if (depsPath) {
+    const libPath = path.join(depsPath, "opentui", "libopentui.so")
+    if (existsSync(libPath)) {
+      setRenderLibPath(libPath)
+    }
+  }
+}
+initOpenTuiLibPath()
 
 export function tui(input: {
   url: string
