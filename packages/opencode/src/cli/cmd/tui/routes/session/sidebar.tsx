@@ -303,7 +303,7 @@ export function Sidebar(props: { sessionID: string; overlay?: boolean }) {
             <span style={{ fg: theme.text }}>
               <b>Code</b>
             </span>{" "}
-            <span>{Installation.VERSION}</span>
+            <span>{Installation.DISPLAY_VERSION}</span>
           </text>
         </box>
       </box>

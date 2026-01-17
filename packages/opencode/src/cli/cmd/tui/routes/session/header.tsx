@@ -116,7 +116,7 @@ export function Header() {
               <box flexGrow={1} flexShrink={1} />
               <box flexDirection="row" gap={1} flexShrink={0}>
                 <ContextInfo context={context} cost={cost} />
-                <text fg={theme.textMuted}>v{Installation.VERSION}</text>
+                <text fg={theme.textMuted}>{Installation.DISPLAY_VERSION}</text>
               </box>
             </box>
           </Match>
@@ -125,7 +125,7 @@ export function Header() {
               <Title session={session} />
               <box flexDirection="row" gap={1} flexShrink={0}>
                 <ContextInfo context={context} cost={cost} />
-                <text fg={theme.textMuted}>v{Installation.VERSION}</text>
+                <text fg={theme.textMuted}>{Installation.DISPLAY_VERSION}</text>
               </box>
             </box>
           </Match>

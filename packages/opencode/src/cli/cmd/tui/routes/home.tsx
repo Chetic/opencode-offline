@@ -132,7 +132,7 @@ export function Home() {
         </box>
         <box flexGrow={1} />
         <box flexShrink={0}>
-          <text fg={theme.textMuted}>{Installation.VERSION}</text>
+          <text fg={theme.textMuted}>{Installation.DISPLAY_VERSION}</text>
         </box>
       </box>
     </>

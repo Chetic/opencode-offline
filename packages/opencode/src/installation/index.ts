@@ -1,11 +1,26 @@
 import { BusEvent } from "@/bus/bus-event"
 import path from "path"
+import fs from "fs"
 import { $ } from "bun"
 import z from "zod"
 import { NamedError } from "@opencode-ai/util/error"
 import { Log } from "../util/log"
 import { iife } from "@/util/iife"
 import { Flag } from "../flag/flag"
+
+function readBundleVersion(): string | undefined {
+  if (!Flag.OPENCODE_OFFLINE_DEPS_PATH) return undefined
+  try {
+    // The manifest is in the parent directory of deps (bundle root)
+    const bundleRoot = path.dirname(Flag.OPENCODE_OFFLINE_DEPS_PATH)
+    const manifestPath = path.join(bundleRoot, "manifest.json")
+    const content = fs.readFileSync(manifestPath, "utf-8")
+    const manifest = JSON.parse(content)
+    return manifest.bundleVersion
+  } catch {
+    return undefined
+  }
+}
 
 declare global {
   const OPENCODE_VERSION: string
@@ -182,6 +197,9 @@ export namespace Installation {
   export const VERSION = typeof OPENCODE_VERSION === "string" ? OPENCODE_VERSION : "local"
   export const CHANNEL = typeof OPENCODE_CHANNEL === "string" ? OPENCODE_CHANNEL : "local"
   export const USER_AGENT = `opencode/${CHANNEL}/${VERSION}/${Flag.OPENCODE_CLIENT}`
+
+  const BUNDLE_VERSION = readBundleVersion()
+  export const DISPLAY_VERSION = BUNDLE_VERSION ? `offline-v${BUNDLE_VERSION}` : VERSION
 
   export async function latest(installMethod?: Method) {
     const detectedMethod = installMethod || (await method())
