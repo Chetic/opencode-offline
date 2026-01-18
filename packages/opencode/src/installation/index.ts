@@ -8,7 +8,12 @@ import { Log } from "../util/log"
 import { iife } from "@/util/iife"
 import { Flag } from "../flag/flag"
 
-function readBundleVersion(): string | undefined {
+interface BundleInfo {
+  version: string
+  commitSha?: string
+}
+
+function readBundleInfo(): BundleInfo | undefined {
   if (!Flag.OPENCODE_OFFLINE_DEPS_PATH) return undefined
   try {
     // The manifest is in the parent directory of deps (bundle root)
@@ -16,7 +21,11 @@ function readBundleVersion(): string | undefined {
     const manifestPath = path.join(bundleRoot, "manifest.json")
     const content = fs.readFileSync(manifestPath, "utf-8")
     const manifest = JSON.parse(content)
-    return manifest.bundleVersion
+    if (!manifest.bundleVersion) return undefined
+    return {
+      version: manifest.bundleVersion,
+      commitSha: manifest.commitSha,
+    }
   } catch {
     return undefined
   }
@@ -198,8 +207,10 @@ export namespace Installation {
   export const CHANNEL = typeof OPENCODE_CHANNEL === "string" ? OPENCODE_CHANNEL : "local"
   export const USER_AGENT = `opencode/${CHANNEL}/${VERSION}/${Flag.OPENCODE_CLIENT}`
 
-  const BUNDLE_VERSION = readBundleVersion()
-  export const DISPLAY_VERSION = BUNDLE_VERSION ? `offline-v${BUNDLE_VERSION}` : VERSION
+  const BUNDLE_INFO = readBundleInfo()
+  export const DISPLAY_VERSION = BUNDLE_INFO
+    ? `offline-v${BUNDLE_INFO.version}${BUNDLE_INFO.commitSha ? ` (${BUNDLE_INFO.commitSha})` : ""}`
+    : VERSION
 
   export async function latest(installMethod?: Method) {
     const detectedMethod = installMethod || (await method())

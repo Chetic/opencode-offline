@@ -74,11 +74,23 @@ async function createBundle(buildDir: string): Promise<void> {
   await fs.mkdir(path.join(BUNDLE_DIR, "deps", "opentui"), { recursive: true })
   await fs.copyFile(opentuiSoPath, path.join(BUNDLE_DIR, "deps", "opentui", "libopentui.so"))
 
-  // Copy manifest to root
-  await fs.copyFile(
-    path.join(DEPS_DIR, "manifest.json"),
-    path.join(BUNDLE_DIR, "manifest.json")
-  )
+  // Copy manifest to root and inject version info
+  const manifestContent = await fs.readFile(path.join(DEPS_DIR, "manifest.json"), "utf-8")
+  const manifest = JSON.parse(manifestContent)
+
+  // Inject bundle version and commit SHA from environment
+  const bundleVersion = process.env.BUNDLE_VERSION
+  const commitSha = process.env.BUNDLE_COMMIT_SHA
+  if (bundleVersion) {
+    manifest.bundleVersion = bundleVersion
+    console.log(`Injecting bundleVersion: ${bundleVersion}`)
+  }
+  if (commitSha) {
+    manifest.commitSha = commitSha
+    console.log(`Injecting commitSha: ${commitSha}`)
+  }
+
+  await Bun.write(path.join(BUNDLE_DIR, "manifest.json"), JSON.stringify(manifest, null, 2))
 
   console.log("Bundle structure created")
 }

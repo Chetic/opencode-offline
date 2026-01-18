@@ -25,9 +25,12 @@ jobs:
           else
             next=$((latest + 1))
           fi
+          # Get short commit SHA (7 chars)
+          sha=$(git rev-parse --short=7 HEAD)
           echo "version=$next" >> $GITHUB_OUTPUT
           echo "tag=offline-v$next" >> $GITHUB_OUTPUT
-          echo "Calculated version: $next (tag: offline-v$next)"
+          echo "sha=$sha" >> $GITHUB_OUTPUT
+          echo "Calculated version: $next (tag: offline-v$next, sha: $sha)"
 
       - uses: oven-sh/setup-bun@v1
         with:
@@ -41,11 +44,9 @@ jobs:
 
       - name: Build and package bundle
         run: bun run script/package-offline-bundle.ts
-
-      - name: Add version to manifest
-        run: |
-          cd dist/opencode-offline-linux-x64
-          jq '.bundleVersion = "${{ steps.version.outputs.version }}"' manifest.json > manifest.tmp && mv manifest.tmp manifest.json
+        env:
+          BUNDLE_VERSION: ${{ steps.version.outputs.version }}
+          BUNDLE_COMMIT_SHA: ${{ steps.version.outputs.sha }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
