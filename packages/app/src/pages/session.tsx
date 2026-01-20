@@ -665,10 +665,10 @@ export default function Page() {
         const sessionID = params.id
         if (!sessionID) return
         const response = await sdk.client.session.dumpRequest({ sessionID })
-        if (response.data?.success && response.data.filePath) {
+        if (response.data?.success && response.data.scriptPath) {
           showToast({
             title: "Request saved",
-            description: `Curl command saved to ${response.data.filePath}`,
+            description: `Curl command saved to ${response.data.scriptPath}`,
           })
         } else {
           showToast({
