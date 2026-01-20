@@ -13,6 +13,7 @@ import { Env } from "../env"
 import { Instance } from "../project/instance"
 import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
+import { Offline } from "../offline"
 
 // Direct imports for bundled providers
 import { createAmazonBedrock, type AmazonBedrockProviderSettings } from "@ai-sdk/amazon-bedrock"
@@ -1175,10 +1176,12 @@ export namespace Provider {
       }
     }
 
-    // Check if opencode provider is available before using it
-    const opencodeProvider = await state().then((state) => state.providers["opencode"])
-    if (opencodeProvider && opencodeProvider.models["gpt-5-nano"]) {
-      return getModel("opencode", "gpt-5-nano")
+    // Check if opencode provider is available before using it (skip in offline mode)
+    if (!Offline.isEnabled()) {
+      const opencodeProvider = await state().then((state) => state.providers["opencode"])
+      if (opencodeProvider && opencodeProvider.models["gpt-5-nano"]) {
+        return getModel("opencode", "gpt-5-nano")
+      }
     }
 
     return undefined
