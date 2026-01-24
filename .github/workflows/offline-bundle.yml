@@ -62,6 +62,18 @@ jobs:
           git tag ${{ steps.version.outputs.tag }}
           git push origin ${{ steps.version.outputs.tag }}
 
+      - name: Upload bundle to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          ASSET="dist/opencode-offline-linux-x64.tar.gz"
+          if gh release view "$TAG" &>/dev/null; then
+            gh release upload "$TAG" "$ASSET" --clobber
+          else
+            gh release create "$TAG" "$ASSET" --title "$TAG" --generate-notes
+          fi
+
       - name: Summary
         run: |
           echo "## Offline Bundle Created" >> $GITHUB_STEP_SUMMARY
