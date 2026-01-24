@@ -67,7 +67,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="${{ steps.version.outputs.tag }}"
-          ASSET="dist/opencode-offline-linux-x64.tar.gz"
+          ASSET="dist/opencode-${{ steps.version.outputs.tag }}-linux-x64.tar.gz"
+          mv dist/opencode-offline-linux-x64.tar.gz "$ASSET"
           if gh release view "$TAG" &>/dev/null; then
             gh release upload "$TAG" "$ASSET" --clobber
           else
