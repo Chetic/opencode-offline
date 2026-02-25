@@ -35,7 +35,7 @@ export namespace Offline {
     return path.join(depsPath, "app")
   }
 
-  export async function tryServeStaticFile(reqPath: string): Promise<{ body: BunFile; mime: string } | undefined> {
+  export async function tryServeStaticFile(reqPath: string): Promise<{ body: ReturnType<typeof Bun.file>; mime: string } | undefined> {
     const appDir = resolveAppDist()
     if (!appDir) return undefined
     const filePath = reqPath === "/" ? "/index.html" : reqPath

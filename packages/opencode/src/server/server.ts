@@ -544,7 +544,7 @@ export namespace Server {
         .all("/*", async (c) => {
           // offline-fork: serve bundled web app in offline mode
           const offline = await Offline.tryServeStaticFile(c.req.path)
-          if (offline) return c.body(offline.body, { headers: { "Content-Type": offline.mime } })
+          if (offline) return new Response(offline.body, { headers: { "Content-Type": offline.mime } })
 
           const path = c.req.path
 
