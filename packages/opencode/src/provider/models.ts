@@ -2,10 +2,15 @@ import { Global } from "../global"
 import { Log } from "../util/log"
 import path from "path"
 import z from "zod"
-import { data } from "./models-macro" with { type: "macro" }
 import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
+import { lazy } from "@/util/lazy"
+import { Filesystem } from "../util/filesystem"
 import { Offline } from "../offline"
+
+// Try to import bundled snapshot (generated at build time)
+// Falls back to undefined in dev mode when snapshot doesn't exist
+/* @ts-ignore */
 
 export namespace ModelsDev {
   const log = Log.create({ service: "models.dev" })
@@ -61,7 +66,7 @@ export namespace ModelsDev {
     status: z.enum(["alpha", "beta", "deprecated"]).optional(),
     options: z.record(z.string(), z.any()),
     headers: z.record(z.string(), z.string()).optional(),
-    provider: z.object({ npm: z.string() }).optional(),
+    provider: z.object({ npm: z.string().optional(), api: z.string().optional() }).optional(),
     variants: z.record(z.string(), z.record(z.string(), z.any())).optional(),
   })
   export type Model = z.infer<typeof Model>
@@ -77,53 +82,39 @@ export namespace ModelsDev {
 
   export type Provider = z.infer<typeof Provider>
 
+  function url() {
+    return Flag.OPENCODE_MODELS_URL || "https://models.dev"
+  }
+
+  export const Data = lazy(async () => {
+    const result = await Filesystem.readJson(Flag.OPENCODE_MODELS_PATH ?? filepath).catch(() => {})
+    if (result) return result
+    // @ts-ignore
+    const snapshot = await import("./models-snapshot")
+      .then((m) => m.snapshot as Record<string, unknown>)
+      .catch(() => undefined)
+    if (snapshot) return snapshot
+    if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return {}
+    const json = await fetch(`${url()}/api.json`).then((x) => x.text())
+    return JSON.parse(json)
+  })
+
   export async function get() {
-    // In offline mode, use bundled models or cached file only - never fetch
-    if (Offline.isEnabled() || Flag.OPENCODE_DISABLE_MODELS_FETCH) {
-      // First try bundled models from offline deps
+    // offline-fork: in offline mode, try bundled models from offline deps first
+    if (Offline.isEnabled()) {
       const offlineModels = Offline.getDepsPath()
       if (offlineModels) {
-        const offlineFile = Bun.file(path.join(offlineModels, "models.json"))
-        const offlineResult = await offlineFile.json().catch(() => {})
+        const offlineResult = await Filesystem.readJson(path.join(offlineModels, "models.json")).catch(() => {})
         if (offlineResult) return offlineResult as Record<string, Provider>
       }
-
-      // Fall back to cache
-      const file = Bun.file(filepath)
-      const result = await file.json().catch(() => {})
-      if (result) return result as Record<string, Provider>
-
-      // Fall back to macro (build-time embedded data)
-      if (typeof data === "function") {
-        const json = await data()
-        return JSON.parse(json) as Record<string, Provider>
-      }
-
-      throw new Error("No models data available in offline mode")
     }
 
-    // Online mode - existing behavior
-    refresh()
-    const file = Bun.file(filepath)
-    const result = await file.json().catch(() => {})
-    if (result) return result as Record<string, Provider>
-    if (typeof data === "function") {
-      const json = await data()
-      return JSON.parse(json) as Record<string, Provider>
-    }
-    const url = Global.Path.modelsDevUrl
-    const json = await fetch(`${url}/api.json`).then((x) => x.text())
-    return JSON.parse(json) as Record<string, Provider>
+    const result = await Data()
+    return result as Record<string, Provider>
   }
 
   export async function refresh() {
-    if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return
-    const file = Bun.file(filepath)
-    log.info("refreshing", {
-      file,
-    })
-    const url = Global.Path.modelsDevUrl
-    const result = await fetch(`${url}/api.json`, {
+    const result = await fetch(`${url()}/api.json`, {
       headers: {
         "User-Agent": Installation.USER_AGENT,
       },
@@ -133,12 +124,20 @@ export namespace ModelsDev {
         error: e,
       })
     })
-    if (result && result.ok) await Bun.write(file, await result.text())
+    if (result && result.ok) {
+      await Filesystem.write(filepath, await result.text())
+      ModelsDev.Data.reset()
+    }
   }
 }
 
-setInterval(() => {
-  if (!Offline.isEnabled() && !Flag.OPENCODE_DISABLE_MODELS_FETCH) {
-    ModelsDev.refresh()
-  }
-}, 60 * 1000 * 60).unref()
+// offline-fork: skip models refresh in offline mode
+if (!Offline.isEnabled() && !Flag.OPENCODE_DISABLE_MODELS_FETCH && !process.argv.includes("--get-yargs-completions")) {
+  ModelsDev.refresh()
+  setInterval(
+    async () => {
+      await ModelsDev.refresh()
+    },
+    60 * 1000 * 60,
+  ).unref()
+}
