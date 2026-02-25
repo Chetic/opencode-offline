@@ -1,3 +1,9 @@
+---
+
+> **This is the offline fork of OpenCode.** Upstream OpenCode requires internet access for several core functions: the web UI proxies all requests to `app.opencode.ai`, ripgrep and LSP servers (TypeScript, Python, C++, Rust) are downloaded on first use, and model metadata is fetched from `models.dev`. In air-gapped or restricted network environments, this means no web interface (HTTP 500 on every request), no file search, no code intelligence, and no model definitions. This fork bundles all of these dependencies into a self-contained package and serves the web UI locally, so OpenCode can run fully offline with no outbound network access. See `AGENTS.md` for fork architecture and `test/offline/` for the containerized test suite that validates all of this in a network-isolated RHEL9 container.
+
+---
+
 <p align="center">
   <a href="https://opencode.ai">
     <picture>
@@ -38,12 +44,6 @@
 </p>
 
 [![OpenCode Terminal UI](packages/web/src/assets/lander/screenshot.png)](https://opencode.ai)
-
----
-
-> **This is the offline fork of OpenCode.** Upstream OpenCode requires internet access for several core functions: the web UI proxies all requests to `app.opencode.ai`, ripgrep and LSP servers (TypeScript, Python, C++, Rust) are downloaded on first use, and model metadata is fetched from `models.dev`. In air-gapped or restricted network environments, this means no web interface (HTTP 500 on every request), no file search, no code intelligence, and no model definitions. This fork bundles all of these dependencies into a self-contained package and serves the web UI locally, so OpenCode can run fully offline with no outbound network access. See `AGENTS.md` for fork architecture and `test/offline/` for the containerized test suite that validates all of this in a network-isolated RHEL9 container.
-
----
 
 ### Installation
 
