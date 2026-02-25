@@ -176,3 +176,24 @@ const table = sqliteTable("session", {
 - Avoid mocks as much as possible
 - Test actual implementation, do not duplicate logic into tests
 - Tests cannot run from repo root (guard: `do-not-run-tests-from-root`); run from package dirs like `packages/opencode`.
+
+### Offline Integration Tests
+
+When making changes to offline-related code, run the containerized offline test suite to verify the bundle still works in an air-gapped environment:
+
+```bash
+bun install
+bun run script/download-offline-deps.ts
+bun run script/package-offline-bundle.ts
+docker compose -f test/offline/docker-compose.yml up --build
+```
+
+This builds the full offline bundle, runs it in a RHEL9 container with no outbound network, and validates: environment setup, binary execution, network isolation, web UI serving (bundled SolidJS app), LSP server presence, and CLI commands.
+
+These tests run automatically in CI (`.github/workflows/offline-test.yml`) on changes to:
+- `packages/opencode/src/offline/**`
+- `packages/opencode/src/server/server.ts`
+- `script/download-offline-deps.ts`, `script/package-offline-bundle.ts`
+- `test/offline/**`
+
+See `test/offline/README.md` for details on network isolation modes, interactive exploration, and troubleshooting.

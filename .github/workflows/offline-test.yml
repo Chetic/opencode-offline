@@ -1,0 +1,51 @@
+name: Offline Test
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - "packages/opencode/src/offline/**"
+      - "packages/opencode/src/server/server.ts"
+      - "script/download-offline-deps.ts"
+      - "script/package-offline-bundle.ts"
+      - "test/offline/**"
+      - ".github/workflows/offline-test.yml"
+  pull_request:
+    paths:
+      - "packages/opencode/src/offline/**"
+      - "packages/opencode/src/server/server.ts"
+      - "script/download-offline-deps.ts"
+      - "script/package-offline-bundle.ts"
+      - "test/offline/**"
+      - ".github/workflows/offline-test.yml"
+  workflow_dispatch:
+
+jobs:
+  offline-test:
+    name: offline integration
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-bun
+
+      - name: Download offline dependencies
+        run: bun run script/download-offline-deps.ts
+
+      - name: Build and package bundle
+        run: bun run script/package-offline-bundle.ts
+
+      - name: Verify web app in bundle
+        run: test -f dist/opencode-offline-linux-x64/deps/app/index.html
+
+      - name: Run containerized offline tests
+        run: docker compose -f test/offline/docker-compose.yml up --build --exit-code-from opencode-offline
+
+      - name: Upload bundle on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-bundle-debug
+          path: dist/opencode-offline-linux-x64/
+          retention-days: 7

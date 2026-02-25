@@ -217,6 +217,28 @@ async function downloadModelsJson(): Promise<void> {
   console.log("models.json downloaded successfully")
 }
 
+async function buildWebApp(): Promise<void> {
+  console.log("\n=== Building web app ===")
+
+  // Build the web app using turbo (handles workspace dependency graph)
+  const proc = Bun.spawn(["bun", "turbo", "build", "--filter=@opencode-ai/app"], {
+    stdout: "inherit",
+    stderr: "inherit",
+  })
+  await proc.exited
+  if (proc.exitCode !== 0) {
+    throw new Error("Failed to build web app")
+  }
+
+  // Copy built app to offline deps
+  const appDistSrc = "packages/app/dist"
+  const appDistDest = path.join(DEPS_DIR, "app")
+  await fs.mkdir(appDistDest, { recursive: true })
+  await $`cp -r ${appDistSrc}/* ${appDistDest}/`
+
+  console.log("Web app built and copied successfully")
+}
+
 async function createManifest(
   ripgrepVersion: string,
   clangdVersion: string,
@@ -260,6 +282,7 @@ async function main() {
   const rustAnalyzerVersion = await downloadRustAnalyzer()
   const npmVersions = await installNpmPackages()
   await downloadModelsJson()
+  await buildWebApp()
 
   // Create manifest
   await createManifest(ripgrepVersion, clangdVersion, rustAnalyzerVersion, npmVersions)

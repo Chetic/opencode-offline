@@ -1,0 +1,23 @@
+services:
+  opencode-offline:
+    build:
+      context: ../..
+      dockerfile: test/offline/Dockerfile
+    entrypoint: ["/bin/bash", "/opt/opencode/test-offline.sh"]
+    networks:
+      - offline
+    environment:
+      - OPENCODE_OFFLINE_MODE=true
+      - OPENCODE_OFFLINE_DEPS_PATH=/opt/opencode/deps
+      - OPENCODE_DISABLE_AUTOUPDATE=true
+      - OPENCODE_DISABLE_LSP_DOWNLOAD=true
+      - OPENCODE_DISABLE_MODELS_FETCH=true
+      # Set LLM_ENDPOINT for optional LLM testing (not used in strict offline mode)
+      # To test with a local LLM, switch to the 'permissive' network and set:
+      # - LLM_ENDPOINT=http://host.docker.internal:11434
+      - LLM_ENDPOINT=${LLM_ENDPOINT:-}
+
+networks:
+  offline:
+    driver: bridge
+    internal: true  # No outbound internet access

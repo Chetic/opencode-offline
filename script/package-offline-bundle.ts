@@ -133,6 +133,7 @@ This is a self-contained offline bundle of OpenCode for Linux x64 (RHEL9 compati
   - \`ripgrep/\` - Ripgrep binary for fast file searching
   - \`lsp/\` - Language server binaries (clangd, rust-analyzer)
   - \`node_modules/\` - npm packages (pyright, typescript, etc.)
+  - \`app/\` - Pre-built web UI (SolidJS app)
 - \`manifest.json\` - Version information for all bundled components
 - \`opencode-offline\` - Wrapper script that sets up the environment
 
@@ -143,6 +144,14 @@ This is a self-contained offline bundle of OpenCode for Linux x64 (RHEL9 compati
 \`\`\`bash
 ./opencode-offline
 \`\`\`
+
+### Web UI
+
+To start the web interface (served locally from the bundled app):
+
+\\\`\\\`\\\`bash
+./opencode-offline web
+\\\`\\\`\\\`
 
 ### Option 2: Set environment variables manually
 

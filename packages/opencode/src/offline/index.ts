@@ -1,5 +1,6 @@
 import path from "path"
 import { Flag } from "../flag/flag"
+import { Filesystem } from "../util/filesystem"
 
 export namespace Offline {
   export function isEnabled(): boolean {
@@ -26,5 +27,23 @@ export namespace Offline {
     const depsPath = getDepsPath()
     if (!isEnabled() || !depsPath) return undefined
     return path.join(depsPath, "lsp", lspName, "bin", binaryName)
+  }
+
+  export function resolveAppDist(): string | undefined {
+    const depsPath = getDepsPath()
+    if (!isEnabled() || !depsPath) return undefined
+    return path.join(depsPath, "app")
+  }
+
+  export async function tryServeStaticFile(reqPath: string): Promise<{ body: BunFile; mime: string } | undefined> {
+    const appDir = resolveAppDist()
+    if (!appDir) return undefined
+    const filePath = reqPath === "/" ? "/index.html" : reqPath
+    const file = Bun.file(path.join(appDir, filePath))
+    if (await file.exists()) return { body: file, mime: Filesystem.mimeType(filePath) }
+    // SPA fallback: serve index.html for client-side routes
+    const index = Bun.file(path.join(appDir, "index.html"))
+    if (await index.exists()) return { body: index, mime: "text/html; charset=utf-8" }
+    return undefined
   }
 }
