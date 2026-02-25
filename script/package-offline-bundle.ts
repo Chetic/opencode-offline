@@ -68,9 +68,15 @@ async function createBundle(buildDir: string): Promise<void> {
   console.log("Copying dependencies...")
   await $`cp -r ${DEPS_DIR}/* ${path.join(BUNDLE_DIR, "deps")}/`
 
-  // Copy OpenTUI native library
+  // Copy OpenTUI native library (glob for installed version)
   console.log("Copying OpenTUI native library...")
-  const opentuiSoPath = "node_modules/.bun/@opentui+core-linux-x64@0.1.74/node_modules/@opentui/core-linux-x64/libopentui.so"
+  const opentuiGlob = new Bun.Glob("node_modules/.bun/@opentui+core-linux-x64@*/node_modules/@opentui/core-linux-x64/libopentui.so")
+  const opentuiMatches = Array.from(opentuiGlob.scanSync({ dot: true }))
+  if (opentuiMatches.length === 0) {
+    throw new Error("Could not find OpenTUI native library - ensure @opentui/core-linux-x64 is installed")
+  }
+  const opentuiSoPath = opentuiMatches[0]
+  console.log(`Found OpenTUI at: ${opentuiSoPath}`)
   await fs.mkdir(path.join(BUNDLE_DIR, "deps", "opentui"), { recursive: true })
   await fs.copyFile(opentuiSoPath, path.join(BUNDLE_DIR, "deps", "opentui", "libopentui.so"))
 
