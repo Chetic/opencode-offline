@@ -1,297 +1,147 @@
 #!/usr/bin/env bun
 
+// offline-fork: downloads everything the offline bundle needs at runtime into dist/offline-deps.
+//
+// Layout (consumed by packages/core/src/offline.ts and the opencode-offline wrapper):
+//   ripgrep/rg                     ripgrep binary (found via PATH)
+//   lsp/clangd/bin/clangd          clangd (found via PATH)
+//   lsp/rust-analyzer/bin/...      rust-analyzer (found via PATH)
+//   node_modules/                  npm LSP packages (pyright, typescript, typescript-language-server)
+//   bin/                           shims running npm binaries on the opencode binary's Bun runtime
+//   models.json                    models.dev snapshot (OPENCODE_MODELS_PATH)
+//
+// The web UI no longer needs bundling: upstream embeds it into the opencode binary at build time.
+
 import { $ } from "bun"
 import fs from "fs/promises"
 import path from "path"
 
-const DEPS_DIR = "dist/offline-deps"
-const RIPGREP_VERSION = "14.1.1"
+const DEPS = "dist/offline-deps"
+// Keep in sync with RipgrepBinary.VERSION in packages/core/src/ripgrep/binary.ts
+const RIPGREP = "15.1.0"
+// typescript 7+ is the native (Go) port without lib/tsserver.js, which typescript-language-server needs
+const PACKAGES = ["pyright", "typescript@6", "typescript-language-server"]
+// npm packages whose binaries get a shim in deps/bin
+const SHIMS = ["pyright", "typescript-language-server"]
 
-interface Manifest {
-  version: string
-  created: string
-  platform: string
-  arch: string
-  components: {
-    ripgrep: string
-    clangd: string
-    rustAnalyzer: string
-    npmPackages: Record<string, string>
-  }
-}
+type Release = { tag_name: string; assets: { name: string; browser_download_url: string }[] }
 
-async function downloadFile(url: string, dest: string): Promise<void> {
+async function download(url: string, dest: string) {
   console.log(`Downloading ${url}...`)
   const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`)
-  }
-  const buffer = await response.arrayBuffer()
-  await Bun.write(dest, buffer)
-  console.log(`Downloaded to ${dest}`)
+  if (!response.ok) throw new Error(`Failed to download ${url}: ${response.status} ${response.statusText}`)
+  await Bun.write(dest, await response.arrayBuffer())
 }
 
-async function extractTarGz(archivePath: string, destDir: string, stripComponents = 0): Promise<void> {
-  const args = ["tar", "-xzf", archivePath, "-C", destDir]
-  if (stripComponents > 0) {
-    args.push(`--strip-components=${stripComponents}`)
-  }
-  const proc = Bun.spawn(args, { stdout: "pipe", stderr: "pipe" })
-  await proc.exited
-  if (proc.exitCode !== 0) {
-    throw new Error(`Failed to extract ${archivePath}`)
-  }
-}
-
-async function extractZip(archivePath: string, destDir: string): Promise<void> {
-  const proc = Bun.spawn(["unzip", "-o", "-q", archivePath, "-d", destDir], {
-    stdout: "pipe",
-    stderr: "pipe",
+async function release(repo: string): Promise<Release> {
+  const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+    headers: process.env.GITHUB_TOKEN ? { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } : {},
   })
-  await proc.exited
-  if (proc.exitCode !== 0) {
-    const stderr = await Bun.readableStreamToText(proc.stderr)
-    throw new Error(`Failed to extract ${archivePath}: ${stderr}`)
+  if (!response.ok) throw new Error(`Failed to fetch ${repo} release info: ${response.status}`)
+  return response.json() as Promise<Release>
+}
+
+async function ripgrep() {
+  console.log("\n=== ripgrep ===")
+  const name = `ripgrep-${RIPGREP}-x86_64-unknown-linux-musl.tar.gz`
+  const dir = path.join(DEPS, "ripgrep")
+  const archive = path.join(DEPS, name)
+  await fs.mkdir(dir, { recursive: true })
+  await download(`https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP}/${name}`, archive)
+  await $`tar -xzf ${archive} -C ${dir} --strip-components=1`
+  await fs.unlink(archive)
+  await fs.chmod(path.join(dir, "rg"), 0o755)
+  return RIPGREP
+}
+
+async function clangd() {
+  console.log("\n=== clangd ===")
+  const info = await release("clangd/clangd")
+  const asset = info.assets.find((a) => a.name.startsWith("clangd-linux-") && a.name.endsWith(".zip"))
+  if (!asset) throw new Error("Could not find clangd Linux asset")
+  const lsp = path.join(DEPS, "lsp")
+  const archive = path.join(DEPS, asset.name)
+  await fs.mkdir(lsp, { recursive: true })
+  await download(asset.browser_download_url, archive)
+  await $`unzip -o -q ${archive} -d ${lsp}`
+  await fs.unlink(archive)
+  await fs.rm(path.join(lsp, "clangd"), { recursive: true, force: true })
+  await fs.rename(path.join(lsp, `clangd_${info.tag_name}`), path.join(lsp, "clangd"))
+  await fs.chmod(path.join(lsp, "clangd", "bin", "clangd"), 0o755)
+  return info.tag_name
+}
+
+async function rustAnalyzer() {
+  console.log("\n=== rust-analyzer ===")
+  const info = await release("rust-lang/rust-analyzer")
+  const asset = info.assets.find((a) => a.name === "rust-analyzer-x86_64-unknown-linux-gnu.gz")
+  if (!asset) throw new Error("Could not find rust-analyzer Linux asset")
+  const dir = path.join(DEPS, "lsp", "rust-analyzer", "bin")
+  const archive = path.join(DEPS, "rust-analyzer.gz")
+  await fs.mkdir(dir, { recursive: true })
+  await download(asset.browser_download_url, archive)
+  await $`gunzip -c ${archive} > ${path.join(dir, "rust-analyzer")}`
+  await fs.unlink(archive)
+  await fs.chmod(path.join(dir, "rust-analyzer"), 0o755)
+  return info.tag_name
+}
+
+async function packages() {
+  console.log("\n=== npm packages ===")
+  await Bun.write(path.join(DEPS, "package.json"), JSON.stringify({ dependencies: {} }, null, 2))
+  await $`bun add --cwd ${DEPS} ${PACKAGES}`
+  const pkg = await Bun.file(path.join(DEPS, "package.json")).json()
+  return pkg.dependencies as Record<string, string>
+}
+
+// Shims let LSP servers run without node: the opencode binary acts as bun when BUN_BE_BUN=1.
+// The bundle layout is <root>/bin/opencode and <root>/deps/bin/<shim>.
+async function shims() {
+  console.log("\n=== binary shims ===")
+  const dir = path.join(DEPS, "bin")
+  await fs.mkdir(dir, { recursive: true })
+  for (const name of SHIMS) {
+    const pkg = await Bun.file(path.join(DEPS, "node_modules", name, "package.json")).json()
+    const bins: Record<string, string> = typeof pkg.bin === "string" ? { [name]: pkg.bin } : pkg.bin
+    for (const [bin, target] of Object.entries(bins)) {
+      const file = path.join(dir, bin)
+      await Bun.write(
+        file,
+        `#!/bin/sh
+# offline-fork: runs ${name}'s ${bin} on the bundled opencode binary's Bun runtime
+DEPS="$(cd "$(dirname "$0")/.." && pwd)"
+BUN_BE_BUN=1 exec "$DEPS/../bin/opencode" "$DEPS/node_modules/${name}/${path.posix.normalize(target)}" "$@"
+`,
+      )
+      await fs.chmod(file, 0o755)
+      console.log(`Created shim ${file}`)
+    }
   }
 }
 
-async function downloadRipgrep(): Promise<string> {
-  console.log("\n=== Downloading ripgrep ===")
-  const platform = "x86_64-unknown-linux-musl"
-  const filename = `ripgrep-${RIPGREP_VERSION}-${platform}.tar.gz`
-  const url = `https://github.com/BurntSushi/ripgrep/releases/download/${RIPGREP_VERSION}/${filename}`
-
-  const ripgrepDir = path.join(DEPS_DIR, "ripgrep")
-  await fs.mkdir(ripgrepDir, { recursive: true })
-
-  const archivePath = path.join(DEPS_DIR, filename)
-  await downloadFile(url, archivePath)
-
-  // Extract ripgrep binary
-  await extractTarGz(archivePath, ripgrepDir, 1)
-  await fs.unlink(archivePath)
-
-  // Make binary executable
-  await fs.chmod(path.join(ripgrepDir, "rg"), 0o755)
-
-  console.log("Ripgrep downloaded successfully")
-  return RIPGREP_VERSION
+async function models() {
+  console.log("\n=== models.json ===")
+  await download(`${process.env.OPENCODE_MODELS_URL || "https://models.dev"}/api.json`, path.join(DEPS, "models.json"))
 }
 
-async function downloadClangd(): Promise<string> {
-  console.log("\n=== Downloading clangd ===")
+console.log("=== OpenCode Offline Dependencies Downloader ===")
+await fs.rm(DEPS, { recursive: true, force: true })
+await fs.mkdir(DEPS, { recursive: true })
 
-  // Fetch latest release info
-  const releaseResponse = await fetch("https://api.github.com/repos/clangd/clangd/releases/latest")
-  if (!releaseResponse.ok) {
-    throw new Error("Failed to fetch clangd release info")
-  }
-  const release = await releaseResponse.json() as { tag_name: string; assets: { name: string; browser_download_url: string }[] }
-  const tag = release.tag_name
-
-  // Find Linux asset
-  const asset = release.assets.find(a => a.name.includes("linux") && a.name.includes(tag) && a.name.endsWith(".zip"))
-  if (!asset) {
-    throw new Error("Could not find clangd Linux asset")
-  }
-
-  const clangdDir = path.join(DEPS_DIR, "lsp", "clangd")
-  await fs.mkdir(clangdDir, { recursive: true })
-
-  const archivePath = path.join(DEPS_DIR, asset.name)
-  await downloadFile(asset.browser_download_url, archivePath)
-
-  // Extract clangd
-  await extractZip(archivePath, path.join(DEPS_DIR, "lsp"))
-  await fs.unlink(archivePath)
-
-  // The extracted directory is clangd_<version>, rename to clangd
-  const extractedDir = path.join(DEPS_DIR, "lsp", `clangd_${tag}`)
-  const finalDir = path.join(DEPS_DIR, "lsp", "clangd")
-
-  // Remove existing clangd dir if it exists (we created it above)
-  await fs.rm(finalDir, { recursive: true, force: true })
-  await fs.rename(extractedDir, finalDir)
-
-  // Make binary executable
-  await fs.chmod(path.join(finalDir, "bin", "clangd"), 0o755)
-
-  console.log(`Clangd ${tag} downloaded successfully`)
-  return tag
+const manifest = {
+  version: "2.0.0",
+  created: new Date().toISOString(),
+  platform: "linux",
+  arch: "x64",
+  components: {
+    ripgrep: await ripgrep(),
+    clangd: await clangd(),
+    rustAnalyzer: await rustAnalyzer(),
+    npmPackages: await packages(),
+  },
 }
+await shims()
+await models()
+await Bun.write(path.join(DEPS, "manifest.json"), JSON.stringify(manifest, null, 2))
 
-async function downloadRustAnalyzer(): Promise<string> {
-  console.log("\n=== Downloading rust-analyzer ===")
-
-  // Fetch latest release info
-  const releaseResponse = await fetch("https://api.github.com/repos/rust-lang/rust-analyzer/releases/latest")
-  if (!releaseResponse.ok) {
-    throw new Error("Failed to fetch rust-analyzer release info")
-  }
-  const release = await releaseResponse.json() as { tag_name: string; assets: { name: string; browser_download_url: string }[] }
-  const tag = release.tag_name
-
-  // Find Linux x64 asset
-  const asset = release.assets.find(a => a.name === "rust-analyzer-x86_64-unknown-linux-gnu.gz")
-  if (!asset) {
-    throw new Error("Could not find rust-analyzer Linux asset")
-  }
-
-  const raDir = path.join(DEPS_DIR, "lsp", "rust-analyzer", "bin")
-  await fs.mkdir(raDir, { recursive: true })
-
-  const archivePath = path.join(DEPS_DIR, "rust-analyzer.gz")
-  await downloadFile(asset.browser_download_url, archivePath)
-
-  // Extract rust-analyzer (it's a gzipped binary)
-  const proc = Bun.spawn(["gunzip", "-c", archivePath], {
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-  const binaryData = await Bun.readableStreamToArrayBuffer(proc.stdout)
-  await proc.exited
-  if (proc.exitCode !== 0) {
-    throw new Error("Failed to extract rust-analyzer")
-  }
-
-  const binaryPath = path.join(raDir, "rust-analyzer")
-  await Bun.write(binaryPath, binaryData)
-  await fs.chmod(binaryPath, 0o755)
-
-  await fs.unlink(archivePath)
-
-  console.log(`rust-analyzer ${tag} downloaded successfully`)
-  return tag
-}
-
-async function installNpmPackages(): Promise<Record<string, string>> {
-  console.log("\n=== Installing npm packages ===")
-
-  const nodeModulesDir = path.join(DEPS_DIR, "node_modules")
-  await fs.mkdir(nodeModulesDir, { recursive: true })
-
-  const packages = [
-    "pyright",
-    "typescript",
-    "typescript-language-server",
-    "opencode-anthropic-auth@0.0.9",
-    "@gitlab/opencode-gitlab-auth@1.3.0",
-    "@aws-sdk/credential-providers",
-    "@opencode-ai/plugin",
-  ]
-
-  // Create a temporary package.json for installation
-  const pkgJsonPath = path.join(DEPS_DIR, "package.json")
-  await Bun.write(pkgJsonPath, JSON.stringify({ dependencies: {} }, null, 2))
-
-  // Install packages
-  const installCmd = ["bun", "add", "--cwd", DEPS_DIR, ...packages]
-  console.log(`Running: ${installCmd.join(" ")}`)
-
-  const proc = Bun.spawn(installCmd, {
-    stdout: "inherit",
-    stderr: "inherit",
-  })
-  await proc.exited
-  if (proc.exitCode !== 0) {
-    throw new Error("Failed to install npm packages")
-  }
-
-  // Read installed versions
-  const versions: Record<string, string> = {}
-  const pkgJson = await Bun.file(pkgJsonPath).json()
-
-  for (const [pkg, version] of Object.entries(pkgJson.dependencies || {})) {
-    versions[pkg] = version as string
-  }
-
-  console.log("npm packages installed successfully")
-  return versions
-}
-
-async function downloadModelsJson(): Promise<void> {
-  console.log("\n=== Downloading models.json ===")
-  const url = "https://models.dev/api.json"
-  const destPath = path.join(DEPS_DIR, "models.json")
-  await downloadFile(url, destPath)
-  console.log("models.json downloaded successfully")
-}
-
-async function buildWebApp(): Promise<void> {
-  console.log("\n=== Building web app ===")
-
-  // Build the web app using turbo (handles workspace dependency graph)
-  const proc = Bun.spawn(["bun", "turbo", "build", "--filter=@opencode-ai/app"], {
-    stdout: "inherit",
-    stderr: "inherit",
-  })
-  await proc.exited
-  if (proc.exitCode !== 0) {
-    throw new Error("Failed to build web app")
-  }
-
-  // Copy built app to offline deps
-  const appDistSrc = "packages/app/dist"
-  const appDistDest = path.join(DEPS_DIR, "app")
-  await fs.mkdir(appDistDest, { recursive: true })
-  await $`cp -r ${appDistSrc}/* ${appDistDest}/`
-
-  console.log("Web app built and copied successfully")
-}
-
-async function createManifest(
-  ripgrepVersion: string,
-  clangdVersion: string,
-  rustAnalyzerVersion: string,
-  npmVersions: Record<string, string>
-): Promise<void> {
-  console.log("\n=== Creating manifest ===")
-
-  const manifest: Manifest = {
-    version: "1.0.0",
-    created: new Date().toISOString(),
-    platform: "linux",
-    arch: "x64",
-    components: {
-      ripgrep: ripgrepVersion,
-      clangd: clangdVersion,
-      rustAnalyzer: rustAnalyzerVersion,
-      npmPackages: npmVersions,
-    },
-  }
-
-  await Bun.write(
-    path.join(DEPS_DIR, "manifest.json"),
-    JSON.stringify(manifest, null, 2)
-  )
-
-  console.log("Manifest created")
-}
-
-async function main() {
-  console.log("=== OpenCode Offline Dependencies Downloader ===")
-  console.log(`Target directory: ${DEPS_DIR}`)
-
-  // Clean and create deps directory
-  await fs.rm(DEPS_DIR, { recursive: true, force: true })
-  await fs.mkdir(DEPS_DIR, { recursive: true })
-
-  // Download all dependencies
-  const ripgrepVersion = await downloadRipgrep()
-  const clangdVersion = await downloadClangd()
-  const rustAnalyzerVersion = await downloadRustAnalyzer()
-  const npmVersions = await installNpmPackages()
-  await downloadModelsJson()
-  await buildWebApp()
-
-  // Create manifest
-  await createManifest(ripgrepVersion, clangdVersion, rustAnalyzerVersion, npmVersions)
-
-  console.log("\n=== Download complete ===")
-  console.log(`Dependencies saved to: ${DEPS_DIR}`)
-}
-
-main().catch((err) => {
-  console.error("Error:", err)
-  process.exit(1)
-})
+console.log(`\n=== Download complete: ${DEPS} ===`)

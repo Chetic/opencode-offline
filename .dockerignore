@@ -1,7 +1,16 @@
-node_modules/
-packages/*/node_modules/
-packages/*/dist/
-.git/
-dist/offline-deps/
-dist/opencode-offline-linux-x64.tar.gz
-*.tar.gz
+.git
+.opencode
+.sst
+.turbo
+.wrangler
+node_modules
+**/node_modules
+**/.output
+**/dist
+**/.turbo
+**/.vite
+**/coverage
+
+# offline-fork: the offline test image copies the packaged bundle from dist/
+!dist/opencode-offline-linux-x64
+!dist/opencode-offline-linux-x64/**

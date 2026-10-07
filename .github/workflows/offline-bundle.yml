@@ -36,6 +36,8 @@ jobs:
 
       - name: Download offline dependencies
         run: bun run script/download-offline-deps.ts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Build and package bundle
         run: bun run script/package-offline-bundle.ts

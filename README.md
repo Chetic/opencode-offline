@@ -1,4 +1,4 @@
-> **This is the offline fork of OpenCode.** Upstream OpenCode requires internet access for several core functions: the web UI proxies all requests to `app.opencode.ai`, ripgrep and LSP servers (TypeScript, Python, C++, Rust) are downloaded on first use, and model metadata is fetched from `models.dev`. In air-gapped or restricted network environments, this means no web interface (HTTP 500 on every request), no file search, no code intelligence, and no model definitions. This fork bundles all of these dependencies into a self-contained package and serves the web UI locally, so OpenCode can run fully offline with no outbound network access. See `AGENTS.md` for fork architecture and `test/offline/` for the containerized test suite that validates all of this in a network-isolated RHEL9 container.
+> **This is the offline fork of OpenCode.** Upstream OpenCode reaches the internet for several core functions: ripgrep and LSP servers (TypeScript, Python, C++, Rust) are downloaded on first use, npm-based language servers need `node`, model metadata is fetched from `models.dev`, and plugins are installed from npm. In air-gapped or restricted network environments this means no file search, no code intelligence and no model definitions. This fork packages all of these into a self-contained Linux x64 bundle (`opencode-offline-linux-x64.tar.gz`) with a wrapper script that runs OpenCode fully offline: bundled tools, bundled model definitions, the embedded web UI, language servers that run without `node`, and support for hosts with a noexec `/tmp`. Use it with any local OpenAI-compatible model server (LM Studio, Ollama, vLLM, ...); see the bundle's `README.md`. See `AGENTS.md` for the fork architecture and `test/offline/` for the containerized test suite that validates all of this in a network-isolated RHEL9 container.
 
 ---
 
@@ -38,7 +38,9 @@
   <a href="README.th.md">ไทย</a> |
   <a href="README.tr.md">Türkçe</a> |
   <a href="README.uk.md">Українська</a> |
-  <a href="README.bn.md">বাংলা</a>
+  <a href="README.bn.md">বাংলা</a> |
+  <a href="README.gr.md">Ελληνικά</a> |
+  <a href="README.vi.md">Tiếng Việt</a>
 </p>
 
 [![OpenCode Terminal UI](packages/web/src/assets/lander/screenshot.png)](https://opencode.ai)
@@ -68,12 +70,12 @@ nix run nixpkgs#opencode           # or github:anomalyco/opencode for latest dev
 
 OpenCode is also available as a desktop application. Download directly from the [releases page](https://github.com/anomalyco/opencode/releases) or [opencode.ai/download](https://opencode.ai/download).
 
-| Platform              | Download                              |
-| --------------------- | ------------------------------------- |
-| macOS (Apple Silicon) | `opencode-desktop-darwin-aarch64.dmg` |
-| macOS (Intel)         | `opencode-desktop-darwin-x64.dmg`     |
-| Windows               | `opencode-desktop-windows-x64.exe`    |
-| Linux                 | `.deb`, `.rpm`, or AppImage           |
+| Platform              | Download                           |
+| --------------------- | ---------------------------------- |
+| macOS (Apple Silicon) | `opencode-desktop-mac-arm64.dmg`   |
+| macOS (Intel)         | `opencode-desktop-mac-x64.dmg`     |
+| Windows               | `opencode-desktop-windows-x64.exe` |
+| Linux                 | `.deb`, `.rpm`, or `.AppImage`     |
 
 ```bash
 # macOS (Homebrew)
@@ -123,18 +125,6 @@ If you're interested in contributing to OpenCode, please read our [contributing 
 ### Building on OpenCode
 
 If you are working on a project that's related to OpenCode and is using "opencode" as part of its name, for example "opencode-dashboard" or "opencode-mobile", please add a note to your README to clarify that it is not built by the OpenCode team and is not affiliated with us in any way.
-
-### FAQ
-
-#### How is this different from Claude Code?
-
-It's very similar to Claude Code in terms of capability. Here are the key differences:
-
-- 100% open source
-- Not coupled to any provider. Although we recommend the models we provide through [OpenCode Zen](https://opencode.ai/zen), OpenCode can be used with Claude, OpenAI, Google, or even local models. As models evolve, the gaps between them will close and pricing will drop, so being provider-agnostic is important.
-- Out-of-the-box LSP support
-- A focus on TUI. OpenCode is built by neovim users and the creators of [terminal.shop](https://terminal.shop); we are going to push the limits of what's possible in the terminal.
-- A client/server architecture. This, for example, can allow OpenCode to run on your computer while you drive it remotely from a mobile app, meaning that the TUI frontend is just one of the possible clients.
 
 ---
 

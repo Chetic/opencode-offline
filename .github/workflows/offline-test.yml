@@ -5,16 +5,30 @@ on:
     branches:
       - dev
     paths:
+      - "packages/core/src/offline.ts"
+      - "packages/core/src/npm.ts"
       - "packages/opencode/src/offline/**"
-      - "packages/opencode/src/server/server.ts"
+      - "packages/opencode/src/lsp/lsp.ts"
+      - "packages/opencode/src/lsp/server.ts"
+      - "packages/opencode/src/provider/provider.ts"
+      - "packages/opencode/src/server/routes/instance/httpapi/server.ts"
+      - "packages/tui/src/feature-plugins/offline/**"
+      - "packages/tui/src/feature-plugins/builtins.ts"
       - "script/download-offline-deps.ts"
       - "script/package-offline-bundle.ts"
       - "test/offline/**"
       - ".github/workflows/offline-test.yml"
   pull_request:
     paths:
+      - "packages/core/src/offline.ts"
+      - "packages/core/src/npm.ts"
       - "packages/opencode/src/offline/**"
-      - "packages/opencode/src/server/server.ts"
+      - "packages/opencode/src/lsp/lsp.ts"
+      - "packages/opencode/src/lsp/server.ts"
+      - "packages/opencode/src/provider/provider.ts"
+      - "packages/opencode/src/server/routes/instance/httpapi/server.ts"
+      - "packages/tui/src/feature-plugins/offline/**"
+      - "packages/tui/src/feature-plugins/builtins.ts"
       - "script/download-offline-deps.ts"
       - "script/package-offline-bundle.ts"
       - "test/offline/**"
@@ -30,14 +44,18 @@ jobs:
 
       - uses: ./.github/actions/setup-bun
 
+      - name: Unit tests
+        run: |
+          (cd packages/core && bun test test/offline.test.ts)
+          (cd packages/opencode && bun test test/offline)
+
       - name: Download offline dependencies
         run: bun run script/download-offline-deps.ts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Build and package bundle
         run: bun run script/package-offline-bundle.ts
-
-      - name: Verify web app in bundle
-        run: test -f dist/opencode-offline-linux-x64/deps/app/index.html
 
       - name: Run containerized offline tests
         run: docker compose -f test/offline/docker-compose.yml up --build --exit-code-from opencode-offline

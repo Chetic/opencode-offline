@@ -1,254 +1,148 @@
 #!/usr/bin/env bun
 
+// offline-fork: builds opencode for linux-x64 and packages it with dist/offline-deps
+// into a self-contained bundle (dist/opencode-offline-linux-x64[.tar.gz]).
+
 import { $ } from "bun"
 import fs from "fs/promises"
 import path from "path"
 
-const DEPS_DIR = "dist/offline-deps"
-const BUNDLE_DIR = "dist/opencode-offline-linux-x64"
-const TARBALL_NAME = "opencode-offline-linux-x64.tar.gz"
+const DEPS = "dist/offline-deps"
+const BUNDLE = "dist/opencode-offline-linux-x64"
+const TARBALL = "opencode-offline-linux-x64.tar.gz"
 
-async function buildOpencode(): Promise<string> {
-  console.log("\n=== Building opencode for Linux x64 ===")
-
-  // Install dependencies in packages/opencode first
-  console.log("Installing dependencies...")
-  const installProc = Bun.spawn(["bun", "install"], {
-    cwd: "packages/opencode",
-    stdout: "inherit",
-    stderr: "inherit",
-  })
-  await installProc.exited
-  if (installProc.exitCode !== 0) {
-    throw new Error("Failed to install dependencies")
-  }
-
-  // Use the existing build script
-  const proc = Bun.spawn(["bun", "run", "./script/build.ts"], {
-    cwd: "packages/opencode",
-    stdout: "inherit",
-    stderr: "inherit",
-    env: {
-      ...process.env,
-    },
-  })
-  await proc.exited
-  if (proc.exitCode !== 0) {
-    throw new Error("Failed to build opencode")
-  }
-
-  // Find the linux-x64 binary
-  const distDir = "packages/opencode/dist"
-  const entries = await fs.readdir(distDir)
-  const linuxX64Dir = entries.find(e => e.includes("linux") && e.includes("x64") && !e.includes("baseline") && !e.includes("musl"))
-
-  if (!linuxX64Dir) {
-    throw new Error("Could not find linux-x64 build output")
-  }
-
-  console.log(`Build complete: ${linuxX64Dir}`)
-  return path.join(distDir, linuxX64Dir)
+if (!(await fs.stat(DEPS).catch(() => undefined))) {
+  console.error(`Error: Dependencies not found at ${DEPS}`)
+  console.error("Please run 'bun run script/download-offline-deps.ts' first")
+  process.exit(1)
 }
 
-async function createBundle(buildDir: string): Promise<void> {
-  console.log("\n=== Creating bundle structure ===")
+const upstream = (await Bun.file("packages/opencode/package.json").json()).version as string
+const bundle = process.env.BUNDLE_VERSION ?? "dev"
+const sha = process.env.BUNDLE_COMMIT_SHA ?? (await $`git rev-parse --short=7 HEAD`.nothrow().text()).trim()
+// Shown by `opencode --version` and in the TUI, e.g. 1.18.35-offline.12+abc1234.
+// A non-0.0.0 version also selects the "latest" channel, so data lives in the standard opencode.db.
+const version = `${upstream}-offline.${bundle}${sha ? `+${sha}` : ""}`
 
-  // Clean and create bundle directory
-  await fs.rm(BUNDLE_DIR, { recursive: true, force: true })
-  await fs.mkdir(path.join(BUNDLE_DIR, "bin"), { recursive: true })
-  await fs.mkdir(path.join(BUNDLE_DIR, "deps"), { recursive: true })
+console.log(`\n=== Building opencode ${version} for linux-x64 ===`)
+await $`bun run ./script/build.ts --single`.cwd("packages/opencode").env({
+  ...process.env,
+  OPENCODE_VERSION: version,
+  // Build-time models snapshot matches the bundled models.json
+  MODELS_DEV_API_JSON: path.resolve(DEPS, "models.json"),
+})
 
-  // Copy opencode binary
-  console.log("Copying opencode binary...")
-  const binaryPath = path.join(buildDir, "bin", "opencode")
-  await fs.copyFile(binaryPath, path.join(BUNDLE_DIR, "bin", "opencode"))
-  await fs.chmod(path.join(BUNDLE_DIR, "bin", "opencode"), 0o755)
+console.log("\n=== Creating bundle ===")
+await fs.rm(BUNDLE, { recursive: true, force: true })
+await fs.mkdir(path.join(BUNDLE, "bin"), { recursive: true })
+await fs.copyFile("packages/opencode/dist/opencode-linux-x64/bin/opencode", path.join(BUNDLE, "bin", "opencode"))
+await fs.chmod(path.join(BUNDLE, "bin", "opencode"), 0o755)
+await $`cp -r ${DEPS} ${path.join(BUNDLE, "deps")}`
 
-  // Copy deps
-  console.log("Copying dependencies...")
-  await $`cp -r ${DEPS_DIR}/* ${path.join(BUNDLE_DIR, "deps")}/`
+const manifest = await Bun.file(path.join(DEPS, "manifest.json")).json()
+await Bun.write(
+  path.join(BUNDLE, "manifest.json"),
+  JSON.stringify({ ...manifest, opencode: upstream, bundleVersion: bundle, commitSha: sha, version }, null, 2),
+)
 
-  // Copy OpenTUI native library (glob for installed version)
-  console.log("Copying OpenTUI native library...")
-  const opentuiGlob = new Bun.Glob("node_modules/.bun/@opentui+core-linux-x64@*/node_modules/@opentui/core-linux-x64/libopentui.so")
-  const opentuiMatches = Array.from(opentuiGlob.scanSync({ dot: true }))
-  if (opentuiMatches.length === 0) {
-    throw new Error("Could not find OpenTUI native library - ensure @opentui/core-linux-x64 is installed")
-  }
-  const opentuiSoPath = opentuiMatches[0]
-  console.log(`Found OpenTUI at: ${opentuiSoPath}`)
-  await fs.mkdir(path.join(BUNDLE_DIR, "deps", "opentui"), { recursive: true })
-  await fs.copyFile(opentuiSoPath, path.join(BUNDLE_DIR, "deps", "opentui", "libopentui.so"))
+await Bun.write(
+  path.join(BUNDLE, "opencode-offline"),
+  `#!/bin/bash
+# OpenCode Offline wrapper: configures offline mode and runs the bundled opencode binary.
 
-  // Copy manifest to root and inject version info
-  const manifestContent = await fs.readFile(path.join(DEPS_DIR, "manifest.json"), "utf-8")
-  const manifest = JSON.parse(manifestContent)
-
-  // Inject bundle version and commit SHA from environment
-  const bundleVersion = process.env.BUNDLE_VERSION
-  const commitSha = process.env.BUNDLE_COMMIT_SHA
-  if (bundleVersion) {
-    manifest.bundleVersion = bundleVersion
-    console.log(`Injecting bundleVersion: ${bundleVersion}`)
-  }
-  if (commitSha) {
-    manifest.commitSha = commitSha
-    console.log(`Injecting commitSha: ${commitSha}`)
-  }
-
-  await Bun.write(path.join(BUNDLE_DIR, "manifest.json"), JSON.stringify(manifest, null, 2))
-
-  console.log("Bundle structure created")
-}
-
-async function createWrapperScript(): Promise<void> {
-  console.log("\n=== Creating wrapper script ===")
-
-  const wrapperScript = `#!/bin/bash
-# OpenCode Offline Wrapper Script
-# Sets up environment variables for offline mode and runs opencode
-
-SCRIPT_DIR="\$(cd "\$(dirname "\${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$(dirname "$(readlink -f "\${BASH_SOURCE[0]}")")" && pwd)"
+DEPS="$ROOT/deps"
 
 export OPENCODE_OFFLINE_MODE=true
-export OPENCODE_OFFLINE_DEPS_PATH="\$SCRIPT_DIR/deps"
+export OPENCODE_OFFLINE_DEPS_PATH="$DEPS"
 export OPENCODE_DISABLE_AUTOUPDATE=true
 export OPENCODE_DISABLE_LSP_DOWNLOAD=true
 export OPENCODE_DISABLE_MODELS_FETCH=true
+export OPENCODE_MODELS_PATH="\${OPENCODE_MODELS_PATH:-$DEPS/models.json}"
+# Bundled tools are a fallback: binaries already installed on the system take precedence.
+export PATH="$PATH:$DEPS/bin:$DEPS/ripgrep:$DEPS/lsp/clangd/bin:$DEPS/lsp/rust-analyzer/bin"
 
-exec "\$SCRIPT_DIR/bin/opencode" "\$@"
-`
+# Native libraries embedded in the binary are extracted before loading. The default is /tmp,
+# which hardened hosts mount noexec, so extract into the user's cache instead.
+export BUN_TMPDIR="\${BUN_TMPDIR:-\${XDG_CACHE_HOME:-$HOME/.cache}/opencode/native}"
+mkdir -p "$BUN_TMPDIR" && find "$BUN_TMPDIR" -maxdepth 1 -name '.*.so' -mmin +1440 -delete 2>/dev/null
 
-  await Bun.write(path.join(BUNDLE_DIR, "opencode-offline"), wrapperScript)
-  await fs.chmod(path.join(BUNDLE_DIR, "opencode-offline"), 0o755)
+exec "$ROOT/bin/opencode" "$@"
+`,
+)
+await fs.chmod(path.join(BUNDLE, "opencode-offline"), 0o755)
 
-  console.log("Wrapper script created")
-}
+await Bun.write(
+  path.join(BUNDLE, "README.md"),
+  `# OpenCode Offline Bundle (${version})
 
-async function createReadme(): Promise<void> {
-  console.log("\n=== Creating README ===")
-
-  const readme = `# OpenCode Offline Bundle
-
-This is a self-contained offline bundle of OpenCode for Linux x64 (RHEL9 compatible).
+Self-contained offline bundle of OpenCode for Linux x64 (RHEL9 compatible). No outbound network access is needed.
 
 ## Contents
 
-- \`bin/opencode\` - Main OpenCode binary
+- \`opencode-offline\` - Wrapper script that sets up the offline environment (use this)
+- \`bin/opencode\` - OpenCode binary (web UI embedded)
 - \`deps/\` - Pre-bundled dependencies
-  - \`ripgrep/\` - Ripgrep binary for fast file searching
-  - \`lsp/\` - Language server binaries (clangd, rust-analyzer)
-  - \`node_modules/\` - npm packages (pyright, typescript, etc.)
-  - \`app/\` - Pre-built web UI (SolidJS app)
-- \`manifest.json\` - Version information for all bundled components
-- \`opencode-offline\` - Wrapper script that sets up the environment
+  - \`ripgrep/\` - ripgrep for file search
+  - \`lsp/\` - clangd and rust-analyzer
+  - \`node_modules/\` - pyright, typescript, typescript-language-server
+  - \`bin/\` - shims running the npm language servers on the bundled runtime (no node needed)
+  - \`models.json\` - Model definitions snapshot
+- \`manifest.json\` - Versions of all bundled components
 
 ## Usage
 
-### Option 1: Use the wrapper script (recommended)
-
 \`\`\`bash
-./opencode-offline
+./opencode-offline              # terminal UI
+./opencode-offline web          # web UI, served locally from the binary
+./opencode-offline run "hello"  # non-interactive
 \`\`\`
 
-### Web UI
+The wrapper can be symlinked onto your PATH, e.g. \`ln -s $PWD/opencode-offline ~/.local/bin/opencode\`.
 
-To start the web interface (served locally from the bundled app):
+## Local models
 
-\\\`\\\`\\\`bash
-./opencode-offline web
-\\\`\\\`\\\`
+Point OpenCode at an OpenAI-compatible server (LM Studio, Ollama, vLLM, ...) in \`~/.config/opencode/opencode.json\`:
 
-### Option 2: Set environment variables manually
-
-\`\`\`bash
-export OPENCODE_OFFLINE_MODE=true
-export OPENCODE_OFFLINE_DEPS_PATH=/path/to/deps
-./bin/opencode
-\`\`\`
-
-## Supported Languages
-
-This bundle includes LSP support for:
-- **Python** - via Pyright
-- **TypeScript/JavaScript** - via typescript-language-server
-- **C/C++** - via clangd
-- **Rust** - via rust-analyzer
-
-## Environment Variables
-
-- \`OPENCODE_OFFLINE_MODE\` - Set to \`true\` to enable offline mode
-- \`OPENCODE_OFFLINE_DEPS_PATH\` - Path to the deps directory
-- \`OPENCODE_DISABLE_AUTOUPDATE\` - Set to \`true\` to disable auto-updates
-- \`OPENCODE_DISABLE_LSP_DOWNLOAD\` - Set to \`true\` to prevent LSP downloads
-- \`OPENCODE_DISABLE_MODELS_FETCH\` - Set to \`true\` to prevent fetching models from models.dev
-
-## Troubleshooting
-
-### /tmp mounted with noexec
-This bundle includes a pre-extracted OpenTUI native library in \`deps/opentui/\`.
-When \`OPENCODE_OFFLINE_DEPS_PATH\` is set (done automatically by the wrapper script),
-the application will load this library directly, bypassing the /tmp extraction
-that would otherwise fail on systems with noexec /tmp.
-`
-
-  await Bun.write(path.join(BUNDLE_DIR, "README.md"), readme)
-
-  console.log("README created")
-}
-
-async function createTarball(): Promise<void> {
-  console.log("\n=== Creating tarball ===")
-
-  const tarballPath = path.join("dist", TARBALL_NAME)
-
-  // Remove existing tarball
-  await fs.unlink(tarballPath).catch(() => {})
-
-  // Create tarball
-  const proc = Bun.spawn(
-    ["tar", "-czf", TARBALL_NAME, "opencode-offline-linux-x64"],
-    {
-      cwd: "dist",
-      stdout: "inherit",
-      stderr: "inherit",
+\`\`\`json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "lmstudio": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "LM Studio",
+      "options": { "baseURL": "http://127.0.0.1:1234/v1" },
+      "models": { "qwen/qwen3-coder-30b": { "name": "Qwen3 Coder 30B" } }
     }
-  )
-  await proc.exited
-  if (proc.exitCode !== 0) {
-    throw new Error("Failed to create tarball")
   }
-
-  // Get tarball size
-  const stats = await fs.stat(tarballPath)
-  const sizeMB = (stats.size / (1024 * 1024)).toFixed(2)
-
-  console.log(`Tarball created: ${tarballPath} (${sizeMB} MB)`)
 }
+\`\`\`
 
-async function main() {
-  console.log("=== OpenCode Offline Bundle Packager ===")
+## Supported languages
 
-  // Check if deps exist
-  const depsExist = await fs.stat(DEPS_DIR).catch(() => null)
-  if (!depsExist) {
-    console.error(`Error: Dependencies not found at ${DEPS_DIR}`)
-    console.error("Please run 'bun run script/download-offline-deps.ts' first")
-    process.exit(1)
-  }
+- **Python** - Pyright
+- **TypeScript/JavaScript** - typescript-language-server (uses the project's typescript, or the bundled one)
+- **C/C++** - clangd
+- **Rust** - rust-analyzer
 
-  const buildDir = await buildOpencode()
-  await createBundle(buildDir)
-  await createWrapperScript()
-  await createReadme()
-  await createTarball()
+## Environment variables (set by the wrapper)
 
-  console.log("\n=== Packaging complete ===")
-  console.log(`Bundle directory: ${BUNDLE_DIR}`)
-  console.log(`Tarball: dist/${TARBALL_NAME}`)
-}
+- \`OPENCODE_OFFLINE_MODE\` / \`OPENCODE_OFFLINE_DEPS_PATH\` - enable offline mode and locate \`deps/\`
+- \`OPENCODE_DISABLE_AUTOUPDATE\`, \`OPENCODE_DISABLE_LSP_DOWNLOAD\`, \`OPENCODE_DISABLE_MODELS_FETCH\` - no network access
+- \`OPENCODE_MODELS_PATH\` - model definitions file (defaults to \`deps/models.json\`)
+- \`BUN_TMPDIR\` - where embedded native libraries are extracted (defaults to \`~/.cache/opencode/native\`, so a noexec /tmp works)
 
-main().catch((err) => {
-  console.error("Error:", err)
-  process.exit(1)
-})
+Bundled language servers are enabled by default. Set \`"lsp": false\` in your config to disable them.
+
+## Debugging
+
+Inside a session, \`/curl\` writes the last LLM request to \`~/.opencode/debug/\` as a reusable curl script.
+`,
+)
+
+console.log("\n=== Creating tarball ===")
+await fs.rm(path.join("dist", TARBALL), { force: true })
+await $`tar -czf ${TARBALL} opencode-offline-linux-x64`.cwd("dist")
+const size = (await fs.stat(path.join("dist", TARBALL))).size / (1024 * 1024)
+console.log(`Tarball: dist/${TARBALL} (${size.toFixed(2)} MB)`)
+console.log(`Bundle directory: ${BUNDLE}`)
