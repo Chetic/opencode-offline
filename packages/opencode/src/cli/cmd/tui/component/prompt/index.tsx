@@ -1,8 +1,6 @@
 import { BoxRenderable, TextareaRenderable, MouseEvent, PasteEvent, t, dim, fg } from "@opentui/core"
 import { createEffect, createMemo, type JSX, onMount, createSignal, onCleanup, on, Show, Switch, Match } from "solid-js"
 import "opentui-spinner/solid"
-import path from "path"
-import { Filesystem } from "@/util/filesystem"
 import { useLocal } from "@tui/context/local"
 import { useTheme } from "@tui/context/theme"
 import { EmptyBorder } from "@tui/component/border"
@@ -21,6 +19,13 @@ import { useRenderer } from "@opentui/solid"
 import { Editor } from "@tui/util/editor"
 import { useExit } from "../../context/exit"
 import { Clipboard } from "../../util/clipboard"
+import {
+  defaultImageLimits,
+  loadLocalImage,
+  parseLocalImagePath,
+  prepareImage,
+  type PreparedImage,
+} from "../../util/image-input"
 import type { FilePart } from "@opencode-ai/sdk/v2"
 import { TuiEvent } from "../../event"
 import { iife } from "@/util/iife"
@@ -200,14 +205,7 @@ export function Prompt(props: PromptProps) {
         category: "Prompt",
         hidden: true,
         onSelect: async () => {
-          const content = await Clipboard.read()
-          if (content?.mime.startsWith("image/")) {
-            await pasteImage({
-              filename: "clipboard",
-              mime: content.mime,
-              content: content.data,
-            })
-          }
+          await pasteClipboard()
         },
       },
       {
@@ -570,6 +568,23 @@ export function Prompt(props: PromptProps) {
     // Capture mode before it gets reset
     const currentMode = store.mode
     const variant = local.model.variant.current()
+    const pending = { ...store.prompt, parts: [...store.prompt.parts] }
+    const failed = (error: unknown) => {
+      const data = typeof error === "object" && error !== null && "data" in error ? error.data : undefined
+      const message =
+        typeof data === "object" && data !== null && "message" in data && typeof data.message === "string"
+          ? data.message
+          : error instanceof Error
+            ? error.message
+            : "Failed to send prompt"
+      toast.show({ variant: "error", message, duration: 8000 })
+      // offline-fork: keep a rejected attachment editable without overwriting a new draft.
+      if (!store.prompt.input && store.prompt.parts.length === 0) {
+        setStore("prompt", pending)
+        input.setText(pending.input)
+        restoreExtmarksFromParts(pending.parts)
+      }
+    }
 
     if (store.mode === "shell") {
       sdk.client.session.shell({
@@ -597,43 +612,51 @@ export function Prompt(props: PromptProps) {
       const restOfInput = firstLineEnd === -1 ? "" : inputText.slice(firstLineEnd + 1)
       const args = firstLineArgs.join(" ") + (restOfInput ? "\n" + restOfInput : "")
 
-      sdk.client.session.command({
-        sessionID,
-        command: command.slice(1),
-        arguments: args,
-        agent: local.agent.current().name,
-        model: `${selectedModel.providerID}/${selectedModel.modelID}`,
-        messageID,
-        variant,
-        parts: nonTextParts
-          .filter((x) => x.type === "file")
-          .map((x) => ({
-            id: Identifier.ascending("part"),
-            ...x,
-          })),
-      })
+      sdk.client.session
+        .command(
+          {
+            sessionID,
+            command: command.slice(1),
+            arguments: args,
+            agent: local.agent.current().name,
+            model: `${selectedModel.providerID}/${selectedModel.modelID}`,
+            messageID,
+            variant,
+            parts: nonTextParts
+              .filter((x) => x.type === "file")
+              .map((x) => ({
+                id: Identifier.ascending("part"),
+                ...x,
+              })),
+          },
+          { throwOnError: true },
+        )
+        .catch(failed)
     } else {
       sdk.client.session
-        .prompt({
-          sessionID,
-          ...selectedModel,
-          messageID,
-          agent: local.agent.current().name,
-          model: selectedModel,
-          variant,
-          parts: [
-            {
-              id: Identifier.ascending("part"),
-              type: "text",
-              text: inputText,
-            },
-            ...nonTextParts.map((x) => ({
-              id: Identifier.ascending("part"),
-              ...x,
-            })),
-          ],
-        })
-        .catch(() => {})
+        .prompt(
+          {
+            sessionID,
+            ...selectedModel,
+            messageID,
+            agent: local.agent.current().name,
+            model: selectedModel,
+            variant,
+            parts: [
+              {
+                id: Identifier.ascending("part"),
+                type: "text",
+                text: inputText,
+              },
+              ...nonTextParts.map((x) => ({
+                id: Identifier.ascending("part"),
+                ...x,
+              })),
+            ],
+          },
+          { throwOnError: true },
+        )
+        .catch(failed)
     }
     history.append({
       ...store.prompt,
@@ -693,7 +716,73 @@ export function Prompt(props: PromptProps) {
     )
   }
 
-  async function pasteImage(file: { filename?: string; content: string; mime: string }) {
+  function imageLimits() {
+    const config = (
+      sync.data.config as {
+        attachment?: {
+          image?: { auto_resize?: boolean; max_width?: number; max_height?: number; max_base64_bytes?: number }
+        }
+      }
+    ).attachment?.image
+    return {
+      autoResize: config?.auto_resize ?? defaultImageLimits.autoResize,
+      maxWidth: config?.max_width ?? defaultImageLimits.maxWidth,
+      maxHeight: config?.max_height ?? defaultImageLimits.maxHeight,
+      maxBase64Bytes: config?.max_base64_bytes ?? defaultImageLimits.maxBase64Bytes,
+    }
+  }
+
+  function attachImage(file: PreparedImage) {
+    if (file.mime === "image/svg+xml") pasteText(file.content, `[SVG: ${file.filename ?? "image"}]`)
+    else pasteImage(file)
+  }
+
+  async function pasteClipboard() {
+    try {
+      const content = await Clipboard.read()
+      if (content?.files) {
+        const images: PreparedImage[] = []
+        for (const filepath of content.files) {
+          const image = await loadLocalImage(filepath, { limits: imageLimits() })
+          if (!image) throw new Error("Clipboard file list must contain supported local images")
+          images.push(image)
+        }
+        for (const image of images) attachImage(image)
+        return true
+      }
+      if (content?.mime === "text/plain" && content.data) {
+        const filepath = parseLocalImagePath(content.data)
+        if (filepath) {
+          const image = await loadLocalImage(content.data, { limits: imageLimits() })
+          if (image) attachImage(image)
+        } else {
+          const text = content.data.replace(/\r\n/g, "\n").replace(/\r/g, "\n")
+          const lines = (text.match(/\n/g)?.length ?? 0) + 1
+          if ((lines >= 3 || text.length > 150) && !sync.data.config.experimental?.disable_paste_summary)
+            pasteText(text, `[Pasted ~${lines} lines]`)
+          else input.insertText(text)
+        }
+        return true
+      }
+      if (!content?.mime.startsWith("image/")) {
+        toast.show({
+          variant: "info",
+          message: "Copy an image, image file or local image path, then use Alt+V",
+          duration: 3000,
+        })
+        return true
+      }
+      attachImage(
+        await prepareImage({ filename: "clipboard", mime: content.mime, content: content.data }, imageLimits()),
+      )
+      return true
+    } catch (error) {
+      toast.error(error)
+      return true
+    }
+  }
+
+  function pasteImage(file: PreparedImage) {
     const currentOffset = input.visualCursor.offset
     const extmarkStart = currentOffset
     const count = store.prompt.parts.filter((x) => x.type === "file" && x.mime.startsWith("image/")).length
@@ -841,17 +930,9 @@ export function Prompt(props: PromptProps) {
                 // through bracketed paste, so we need to intercept the keypress and
                 // directly read from clipboard before the terminal handles it
                 if (keybind.match("input_paste", e)) {
-                  const content = await Clipboard.read()
-                  if (content?.mime.startsWith("image/")) {
-                    e.preventDefault()
-                    await pasteImage({
-                      filename: "clipboard",
-                      mime: content.mime,
-                      content: content.data,
-                    })
-                    return
-                  }
-                  // If no image, let the default paste behavior continue
+                  e.preventDefault()
+                  await pasteClipboard()
+                  return
                 }
                 if (keybind.match("input_clear", e) && store.prompt.input !== "") {
                   input.clear()
@@ -927,38 +1008,17 @@ export function Prompt(props: PromptProps) {
                   return
                 }
 
-                // trim ' from the beginning and end of the pasted content. just
-                // ' and nothing else
-                const filepath = pastedContent.replace(/^'+|'+$/g, "").replace(/\\ /g, " ")
-                const isUrl = /^(https?):\/\//.test(filepath)
-                if (!isUrl) {
-                  try {
-                    const mime = Filesystem.mimeType(filepath)
-                    const filename = path.basename(filepath)
-                    // Handle SVG as raw text content, not as base64 image
-                    if (mime === "image/svg+xml") {
-                      event.preventDefault()
-                      const content = await Filesystem.readText(filepath).catch(() => {})
-                      if (content) {
-                        pasteText(content, `[SVG: ${filename ?? "image"}]`)
-                        return
-                      }
-                    }
-                    if (mime.startsWith("image/")) {
-                      event.preventDefault()
-                      const content = await Filesystem.readArrayBuffer(filepath)
-                        .then((buffer) => Buffer.from(buffer).toString("base64"))
-                        .catch(() => {})
-                      if (content) {
-                        await pasteImage({
-                          filename,
-                          mime,
-                          content,
-                        })
-                        return
-                      }
-                    }
-                  } catch {}
+                try {
+                  if (parseLocalImagePath(pastedContent)) {
+                    event.preventDefault()
+                    const image = await loadLocalImage(pastedContent, { limits: imageLimits() })
+                    if (image) attachImage(image)
+                    return
+                  }
+                } catch (error) {
+                  event.preventDefault()
+                  toast.error(error)
+                  return
                 }
 
                 const lineCount = (pastedContent.match(/\n/g)?.length ?? 0) + 1
@@ -1128,6 +1188,19 @@ export function Prompt(props: PromptProps) {
             <box gap={2} flexDirection="row">
               <Switch>
                 <Match when={store.mode === "normal"}>
+                  <Show when={process.platform === "win32"}>
+                    <box
+                      onMouseUp={() => {
+                        if (props.disabled) return
+                        input.focus()
+                        void pasteClipboard()
+                      }}
+                    >
+                      <text fg={theme.text}>
+                        Alt+V <span style={{ fg: theme.textMuted }}>paste image</span>
+                      </text>
+                    </box>
+                  </Show>
                   <Show when={local.model.variant.list().length > 0}>
                     <text fg={theme.text}>
                       {keybind.print("variant_cycle")} <span style={{ fg: theme.textMuted }}>variants</span>

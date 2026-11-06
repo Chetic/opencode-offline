@@ -34,6 +34,7 @@ import { PackageRegistry } from "@/bun/registry"
 import { proxied } from "@/util/proxied"
 import { iife } from "@/util/iife"
 import { Control } from "@/control"
+import { Offline } from "@/offline"
 
 export namespace Config {
   const ModelId = z.string().meta({ $ref: "https://models.dev/model-schema.json#/$defs/Model" })
@@ -80,7 +81,7 @@ export namespace Config {
     // Managed config directory is enterprise-only and always overrides everything above.
     let result: Info = {}
     for (const [key, value] of Object.entries(auth)) {
-      if (value.type === "wellknown") {
+      if (value.type === "wellknown" && !Offline.isEnabled()) {
         process.env[value.key] = value.token
         log.debug("fetching remote config", { url: `${key}/.well-known/opencode` })
         const response = await fetch(`${key}/.well-known/opencode`)
@@ -171,12 +172,15 @@ export namespace Config {
         }
       }
 
-      deps.push(
-        iife(async () => {
-          const shouldInstall = await needsInstall(dir)
-          if (shouldInstall) await installDependencies(dir)
-        }),
-      )
+      // offline-fork: stdio MCP needs no config-directory npm install.
+      // Required provider/plugin packages must already be bundled and fail explicitly if absent.
+      if (!Offline.isEnabled())
+        deps.push(
+          iife(async () => {
+            const shouldInstall = await needsInstall(dir)
+            if (shouldInstall) await installDependencies(dir)
+          }),
+        )
 
       result.command = mergeDeep(result.command ?? {}, await loadCommand(dir))
       result.agent = mergeDeep(result.agent, await loadAgent(dir))
@@ -266,6 +270,10 @@ export namespace Config {
   }
 
   export async function installDependencies(dir: string) {
+    if (Offline.isEnabled())
+      throw new Error(
+        "Offline mode does not install config dependencies. Preinstall required local packages before starting.",
+      )
     const pkg = path.join(dir, "package.json")
     const targetVersion = Installation.isLocal() ? "*" : Installation.VERSION
 
@@ -835,7 +843,11 @@ export namespace Config {
       agent_cycle_reverse: z.string().optional().default("shift+tab").describe("Previous agent"),
       variant_cycle: z.string().optional().default("ctrl+t").describe("Cycle model variants"),
       input_clear: z.string().optional().default("ctrl+c").describe("Clear input field"),
-      input_paste: z.string().optional().default("ctrl+v").describe("Paste from clipboard"),
+      input_paste: z
+        .string()
+        .optional()
+        .default(process.platform === "win32" ? "ctrl+v,alt+v" : "ctrl+v")
+        .describe("Paste from clipboard (Alt+V also works when Windows Terminal intercepts Ctrl+V)"),
       input_submit: z.string().optional().default("return").describe("Submit input"),
       input_newline: z
         .string()
@@ -1023,6 +1035,21 @@ export namespace Config {
       logLevel: Log.Level.optional().describe("Log level"),
       tui: TUI.optional().describe("TUI specific settings"),
       server: Server.optional().describe("Server configuration for opencode serve and web commands"),
+      // offline-fork: validate and normalize image inputs before providers receive them.
+      attachment: z
+        .object({
+          image: z
+            .object({
+              auto_resize: z.boolean().optional(),
+              max_width: z.number().int().positive().optional(),
+              max_height: z.number().int().positive().optional(),
+              max_base64_bytes: z.number().int().positive().optional(),
+            })
+            .strict()
+            .optional(),
+        })
+        .strict()
+        .optional(),
       command: z
         .record(z.string(), Command)
         .optional()

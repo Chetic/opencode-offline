@@ -79,7 +79,8 @@ import { DialogExportOptions } from "../../ui/dialog-export-options"
 import { formatTranscript } from "../../util/transcript"
 import { UI } from "@/cli/ui.ts"
 
-addDefaultParsers(parsers.parsers)
+// offline-fork: additional grammars/queries above use remote URLs; keep core rendering offline.
+if (!Flag.OPENCODE_OFFLINE_MODE) addDefaultParsers(parsers.parsers)
 
 class CustomSpeedScroll implements ScrollAcceleration {
   constructor(private speed: number) {}

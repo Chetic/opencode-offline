@@ -45,6 +45,8 @@ import { LLM } from "./llm"
 import { iife } from "@/util/iife"
 import { Shell } from "@/shell/shell"
 import { Truncate } from "@/tool/truncation"
+import { Image } from "@/image/image"
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -820,6 +822,8 @@ export namespace SessionPrompt {
             },
             output,
           )
+          // offline-fork: plugin and built-in image results must pass the same ingress checks.
+          output.attachments = await Image.attachments(output.attachments)
           return output
         },
       })
@@ -867,10 +871,33 @@ export namespace SessionPrompt {
           result,
         )
 
+        // offline-fork: MCP content is also sent directly to the model, so normalize it before copying attachments.
+        const content = await Promise.all(
+          result.content.map(async (item: CallToolResult["content"][number]) => {
+            if (item.type === "image") {
+              const image = await Image.normalize({
+                mime: item.mimeType,
+                url: `data:${item.mimeType};base64,${item.data}`,
+              })
+              return { ...item, mimeType: image.mime, data: image.url.slice(image.url.indexOf(",") + 1) }
+            }
+            if (item.type === "resource" && "blob" in item.resource && item.resource.mimeType?.startsWith("image/")) {
+              const image = await Image.normalize({
+                mime: item.resource.mimeType,
+                url: `data:${item.resource.mimeType};base64,${item.resource.blob}`,
+              })
+              return {
+                ...item,
+                resource: { ...item.resource, mimeType: image.mime, blob: image.url.slice(image.url.indexOf(",") + 1) },
+              }
+            }
+            return item
+          }),
+        )
         const textParts: string[] = []
         const attachments: Omit<MessageV2.FilePart, "id" | "sessionID" | "messageID">[] = []
 
-        for (const contentItem of result.content) {
+        for (const contentItem of content) {
           if (contentItem.type === "text") {
             textParts.push(contentItem.text)
           } else if (contentItem.type === "image") {
@@ -881,10 +908,10 @@ export namespace SessionPrompt {
             })
           } else if (contentItem.type === "resource") {
             const { resource } = contentItem
-            if (resource.text) {
+            if ("text" in resource && resource.text) {
               textParts.push(resource.text)
             }
-            if (resource.blob) {
+            if ("blob" in resource && resource.blob) {
               attachments.push({
                 type: "file",
                 mime: resource.mimeType ?? "application/octet-stream",
@@ -912,7 +939,7 @@ export namespace SessionPrompt {
             sessionID: ctx.sessionID,
             messageID: input.processor.message.id,
           })),
-          content: result.content, // directly return content to preserve ordering when outputting to model
+          content, // directly return normalized content to preserve ordering when outputting to model
         }
       }
       tools[key] = item
@@ -1307,14 +1334,18 @@ export namespace SessionPrompt {
       },
     )
 
+    // offline-fork: one boundary covers TUI, web/API, files, and plugin-added images.
+    const normalized = await Promise.all(
+      parts.map((part) => (part.type === "file" && Image.isImage(part) ? Image.normalize(part) : part)),
+    )
     await Session.updateMessage(info)
-    for (const part of parts) {
+    for (const part of normalized) {
       await Session.updatePart(part)
     }
 
     return {
       info,
-      parts,
+      parts: normalized,
     }
   }
 

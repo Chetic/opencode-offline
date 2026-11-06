@@ -105,6 +105,10 @@ const allTargets: {
   },
   {
     os: "win32",
+    arch: "arm64",
+  },
+  {
+    os: "win32",
     arch: "x64",
   },
   {
@@ -135,7 +139,10 @@ const targets = singleFlag
     })
   : allTargets
 
-await $`rm -rf dist`
+const distRoot = path.resolve(dir, "dist")
+if (distRoot !== path.join(dir, "dist")) throw new Error("Unexpected build output directory")
+if (fs.existsSync(distRoot) && fs.lstatSync(distRoot).isSymbolicLink()) throw new Error("Build output must not be a link")
+await fs.promises.rm(distRoot, { recursive: true, force: true })
 
 const binaries: Record<string, string> = {}
 if (!skipInstall) {
@@ -189,7 +196,9 @@ for (const item of targets) {
     },
   })
 
-  await $`rm -rf ./dist/${name}/bin/tui`
+  const tuiPath = path.resolve(distRoot, name, "bin/tui")
+  if (!tuiPath.startsWith(distRoot + path.sep)) throw new Error("Unexpected auxiliary output directory")
+  await fs.promises.rm(tuiPath, { recursive: true, force: true })
   await Bun.file(`dist/${name}/package.json`).write(
     JSON.stringify(
       {

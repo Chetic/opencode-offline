@@ -6,6 +6,8 @@ import { tmpdir } from "os"
 import path from "path"
 import { Filesystem } from "../../../../util/filesystem"
 import { Process } from "../../../../util/process"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
 
 /**
  * Writes text to clipboard via OSC 52 escape sequence.
@@ -25,6 +27,32 @@ export namespace Clipboard {
   export interface Content {
     data: string
     mime: string
+    files?: string[]
+  }
+
+  export function parseWindowsContent(text: string): Content | undefined {
+    if (!text.trim()) return
+    if (text.length > Math.ceil((64 * 1024 * 1024) / 3) * 4 + 1024)
+      throw new Error("Clipboard image exceeds the 64 MiB input limit")
+    const value = JSON.parse(text)
+    if (Array.isArray(value.files)) {
+      if (
+        value.files.length > 16 ||
+        value.files.some((p: unknown) => typeof p !== "string" || !p || p.length > 32768 || /[\0\r\n]/.test(p))
+      )
+        throw new Error("Clipboard file list is invalid or contains more than 16 files")
+      if (!value.files.length) return
+      return { data: "", mime: "application/x-opencode-file-list", files: value.files }
+    }
+    if (value.mime !== "image/png" || typeof value.data !== "string")
+      throw new Error("Clipboard image format is invalid")
+    const data = value.data
+    if (!data || data.length % 4 !== 0 || !/^[A-Za-z0-9+/]+={0,2}$/.test(data))
+      throw new Error("Clipboard image contains invalid base64")
+    const bytes = Buffer.from(data, "base64")
+    if (bytes.length > 64 * 1024 * 1024 || bytes.toString("base64") !== data)
+      throw new Error("Clipboard image is invalid or exceeds the 64 MiB input limit")
+    return { data, mime: "image/png" }
   }
 
   export async function read(): Promise<Content | undefined> {
@@ -45,15 +73,37 @@ export namespace Clipboard {
     }
 
     if (os === "win32" || release().includes("WSL")) {
-      const script =
-        "Add-Type -AssemblyName System.Windows.Forms; $img = [System.Windows.Forms.Clipboard]::GetImage(); if ($img) { $ms = New-Object System.IO.MemoryStream; $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); [System.Convert]::ToBase64String($ms.ToArray()) }"
-      const base64 = await $`powershell.exe -NonInteractive -NoProfile -command "${script}"`.nothrow().text()
-      if (base64) {
-        const imageBuffer = Buffer.from(base64.trim(), "base64")
-        if (imageBuffer.length > 0) {
-          return { data: imageBuffer.toString("base64"), mime: "image/png" }
-        }
-      }
+      const script = `
+$ErrorActionPreference = 'Stop'
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+Add-Type -AssemblyName System.Windows.Forms
+$files = [System.Windows.Forms.Clipboard]::GetFileDropList()
+if ($files.Count -gt 0) {
+  if ($files.Count -gt 16) { throw 'Paste at most 16 image files at once' }
+  @{ files = @($files) } | ConvertTo-Json -Compress
+  exit
+}
+$img = [System.Windows.Forms.Clipboard]::GetImage()
+if ($img) {
+  try {
+    if ([long]$img.Width * $img.Height -gt 67108864) { throw 'Clipboard image exceeds the 64 megapixel limit' }
+    $ms = New-Object System.IO.MemoryStream
+    try {
+      $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
+      if ($ms.Length -gt 67108864) { throw 'Clipboard image exceeds the 64 MiB limit' }
+      @{ mime = 'image/png'; data = [System.Convert]::ToBase64String($ms.ToArray()) } | ConvertTo-Json -Compress
+    } finally { $ms.Dispose() }
+  } finally { $img.Dispose() }
+}`
+      const result = await promisify(execFile)(
+        "powershell.exe",
+        ["-NonInteractive", "-NoProfile", "-STA", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64")],
+        { encoding: "utf8", timeout: 10_000, maxBuffer: 90 * 1024 * 1024, windowsHide: true },
+      ).catch(() => {
+        throw new Error("Windows clipboard could not be read; copy the image again or paste its local file path")
+      })
+      const content = parseWindowsContent(result.stdout.toString())
+      if (content) return content
     }
 
     if (os === "linux") {

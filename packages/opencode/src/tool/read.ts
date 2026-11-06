@@ -11,6 +11,7 @@ import { Instance } from "../project/instance"
 import { assertExternalDirectory } from "./external-directory"
 import { InstructionPrompt } from "../session/instruction"
 import { Filesystem } from "../util/filesystem"
+import { Image } from "../image/image"
 
 const DEFAULT_READ_LIMIT = 2000
 const MAX_LINE_LENGTH = 2000
@@ -123,6 +124,11 @@ export const ReadTool = Tool.define("read", {
     const isPdf = mime === "application/pdf"
     if (isImage || isPdf) {
       const msg = `${isImage ? "Image" : "PDF"} read successfully`
+      const attachment = {
+        type: "file" as const,
+        mime,
+        url: `data:${mime};base64,${Buffer.from(await Filesystem.readBytes(filepath)).toString("base64")}`,
+      }
       return {
         title,
         output: msg,
@@ -131,13 +137,8 @@ export const ReadTool = Tool.define("read", {
           truncated: false,
           loaded: instructions.map((i) => i.filepath),
         },
-        attachments: [
-          {
-            type: "file",
-            mime,
-            url: `data:${mime};base64,${Buffer.from(await Filesystem.readBytes(filepath)).toString("base64")}`,
-          },
-        ],
+        // offline-fork: image files share the same validation and codec as user attachments.
+        attachments: [isImage ? await Image.normalize(attachment) : attachment],
       }
     }
 

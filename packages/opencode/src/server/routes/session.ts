@@ -803,12 +803,14 @@ export const SessionRoutes = lazy(() =>
       ),
       validator("json", SessionPrompt.PromptInput.omit({ sessionID: true })),
       async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        // offline-fork: validate and save inputs before committing streaming HTTP headers.
+        const message = await SessionPrompt.prompt({ ...body, sessionID, noReply: true })
         c.status(200)
         c.header("Content-Type", "application/json")
         return stream(c, async (stream) => {
-          const sessionID = c.req.valid("param").sessionID
-          const body = c.req.valid("json")
-          const msg = await SessionPrompt.prompt({ ...body, sessionID })
+          const msg = body.noReply ? message : await SessionPrompt.loop({ sessionID })
           stream.write(JSON.stringify(msg))
         })
       },
