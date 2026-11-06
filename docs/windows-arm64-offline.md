@@ -87,8 +87,9 @@ fields such as `subagent_depth`; validate copied configuration against its schem
 In offline mode, missing web assets return HTTP 503 instead of proxying the
 hosted UI. Missing ripgrep or npm dependencies fail without attempting a download.
 The CLI and TUI worker guard JavaScript `fetch` and `preconnect`: only literal
-loopback HTTP endpoints and embedded binary/Bun virtual-file resources are
-permitted. Automatic redirects are rejected. Extra language grammars that use
+loopback HTTP endpoints, inline data, process-registered Blob URLs, and embedded
+Bun virtual-file resources are permitted. Unknown or revoked Blob URLs and
+automatic redirects are rejected. Extra language grammars that use
 remote URLs are not registered; OpenTUI's bundled parsers remain available.
 
 The bundled web response includes a CSP restricting external asset and connection
@@ -106,8 +107,22 @@ Observed validation on native Windows ARM64 with Bun 1.4.4:
   edit and a new-file creation only after approval. A later creation asked again;
   rejecting it left the file absent. `Always` behaved as a one-call approval.
 - The local HTML response included the external-resource CSP.
-- The source fetch guard passed 26 checks covering local HTTP, embedded binary
-  data, misleading hostnames, UNC/file-path boundaries, and redirect blocking.
+- The source and compiled fetch guards passed 35 checks covering local HTTP,
+  inline data, registered/revoked Blob URLs, misleading hostnames, UNC/file-path
+  boundaries, and redirect blocking.
+
+Image input is normalized before message persistence and before streaming response
+headers are committed. Local AVIF decoding is bundled as WASM; PNG/JPEG output is
+passed to the selected model. The same validation covers prompt attachments,
+file reads, and image results from tools and MCP. Invalid base64, damaged images,
+MIME mismatches, and oversized inputs produce a readable HTTP 400; the terminal
+restores a failed draft. Animated AVIF uses its first frame.
+
+The image update passed 47 targeted source tests, compiled API checks with mixed
+valid/invalid concurrent requests, and real local-model AVIF/PNG inference. The
+tests use synthetic data and two public libavif fixtures; their source and BSD
+notice are included beside the fixtures. These checks do not establish image
+support for every model or replace an operating-system network sandbox.
 
 Run the guard check from `packages/opencode`:
 
@@ -116,8 +131,12 @@ bun run test/offline/fetch-guard.ts
 ```
 
 These are functional checks, not model-quality or performance benchmarks. The
-inference check used a short-context test profile; it does not establish maximum
-context size or full GPU offload. The Linux container offline suite was not rerun
+earlier file-permission inference check used a short-context profile; the separate
+image checks used an existing 131,072-token backend. Neither establishes maximum
+context size or full GPU offload. Draft restoration was reviewed in source;
+backend rejection and subsequent-request recovery were exercised, while the TUI
+restoration branch was not separately tested through the UI.
+The Linux container offline suite was not rerun
 for this Windows adaptation. Browser packet capture was not performed: CSP headers
 and local HTML were checked, rather than claiming every browser feature was tested.
 

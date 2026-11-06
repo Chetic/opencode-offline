@@ -174,12 +174,13 @@ export namespace Config {
 
       // offline-fork: stdio MCP needs no config-directory npm install.
       // Required provider/plugin packages must already be bundled and fail explicitly if absent.
-      if (!Offline.isEnabled()) deps.push(
-        iife(async () => {
-          const shouldInstall = await needsInstall(dir)
-          if (shouldInstall) await installDependencies(dir)
-        }),
-      )
+      if (!Offline.isEnabled())
+        deps.push(
+          iife(async () => {
+            const shouldInstall = await needsInstall(dir)
+            if (shouldInstall) await installDependencies(dir)
+          }),
+        )
 
       result.command = mergeDeep(result.command ?? {}, await loadCommand(dir))
       result.agent = mergeDeep(result.agent, await loadAgent(dir))
@@ -269,7 +270,10 @@ export namespace Config {
   }
 
   export async function installDependencies(dir: string) {
-    if (Offline.isEnabled()) throw new Error("Offline mode does not install config dependencies. Preinstall required local packages before starting.")
+    if (Offline.isEnabled())
+      throw new Error(
+        "Offline mode does not install config dependencies. Preinstall required local packages before starting.",
+      )
     const pkg = path.join(dir, "package.json")
     const targetVersion = Installation.isLocal() ? "*" : Installation.VERSION
 
@@ -1027,6 +1031,21 @@ export namespace Config {
       logLevel: Log.Level.optional().describe("Log level"),
       tui: TUI.optional().describe("TUI specific settings"),
       server: Server.optional().describe("Server configuration for opencode serve and web commands"),
+      // offline-fork: validate and normalize image inputs before providers receive them.
+      attachment: z
+        .object({
+          image: z
+            .object({
+              auto_resize: z.boolean().optional(),
+              max_width: z.number().int().positive().optional(),
+              max_height: z.number().int().positive().optional(),
+              max_base64_bytes: z.number().int().positive().optional(),
+            })
+            .strict()
+            .optional(),
+        })
+        .strict()
+        .optional(),
       command: z
         .record(z.string(), Command)
         .optional()

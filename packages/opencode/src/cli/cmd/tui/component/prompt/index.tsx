@@ -570,6 +570,23 @@ export function Prompt(props: PromptProps) {
     // Capture mode before it gets reset
     const currentMode = store.mode
     const variant = local.model.variant.current()
+    const pending = { ...store.prompt, parts: [...store.prompt.parts] }
+    const failed = (error: unknown) => {
+      const data = typeof error === "object" && error !== null && "data" in error ? error.data : undefined
+      const message =
+        typeof data === "object" && data !== null && "message" in data && typeof data.message === "string"
+          ? data.message
+          : error instanceof Error
+            ? error.message
+            : "Failed to send prompt"
+      toast.show({ variant: "error", message, duration: 8000 })
+      // offline-fork: keep a rejected attachment editable without overwriting a new draft.
+      if (!store.prompt.input && store.prompt.parts.length === 0) {
+        setStore("prompt", pending)
+        input.setText(pending.input)
+        restoreExtmarksFromParts(pending.parts)
+      }
+    }
 
     if (store.mode === "shell") {
       sdk.client.session.shell({
@@ -597,43 +614,51 @@ export function Prompt(props: PromptProps) {
       const restOfInput = firstLineEnd === -1 ? "" : inputText.slice(firstLineEnd + 1)
       const args = firstLineArgs.join(" ") + (restOfInput ? "\n" + restOfInput : "")
 
-      sdk.client.session.command({
-        sessionID,
-        command: command.slice(1),
-        arguments: args,
-        agent: local.agent.current().name,
-        model: `${selectedModel.providerID}/${selectedModel.modelID}`,
-        messageID,
-        variant,
-        parts: nonTextParts
-          .filter((x) => x.type === "file")
-          .map((x) => ({
-            id: Identifier.ascending("part"),
-            ...x,
-          })),
-      })
+      sdk.client.session
+        .command(
+          {
+            sessionID,
+            command: command.slice(1),
+            arguments: args,
+            agent: local.agent.current().name,
+            model: `${selectedModel.providerID}/${selectedModel.modelID}`,
+            messageID,
+            variant,
+            parts: nonTextParts
+              .filter((x) => x.type === "file")
+              .map((x) => ({
+                id: Identifier.ascending("part"),
+                ...x,
+              })),
+          },
+          { throwOnError: true },
+        )
+        .catch(failed)
     } else {
       sdk.client.session
-        .prompt({
-          sessionID,
-          ...selectedModel,
-          messageID,
-          agent: local.agent.current().name,
-          model: selectedModel,
-          variant,
-          parts: [
-            {
-              id: Identifier.ascending("part"),
-              type: "text",
-              text: inputText,
-            },
-            ...nonTextParts.map((x) => ({
-              id: Identifier.ascending("part"),
-              ...x,
-            })),
-          ],
-        })
-        .catch(() => {})
+        .prompt(
+          {
+            sessionID,
+            ...selectedModel,
+            messageID,
+            agent: local.agent.current().name,
+            model: selectedModel,
+            variant,
+            parts: [
+              {
+                id: Identifier.ascending("part"),
+                type: "text",
+                text: inputText,
+              },
+              ...nonTextParts.map((x) => ({
+                id: Identifier.ascending("part"),
+                ...x,
+              })),
+            ],
+          },
+          { throwOnError: true },
+        )
+        .catch(failed)
     }
     history.append({
       ...store.prompt,

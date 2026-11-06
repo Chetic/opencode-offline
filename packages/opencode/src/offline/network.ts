@@ -2,19 +2,26 @@
 // This guards JavaScript fetch in each imported realm, not raw sockets or child processes.
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { resolveObjectURL } from "node:buffer"
 
 const enabled = ["1", "true"].includes(process.env.OPENCODE_OFFLINE_MODE?.toLowerCase() ?? "")
 
 export function assertOfflineURL(input: string | URL | Request) {
   const url = new URL(input instanceof Request ? input.url : String(input))
-  // OpenTUI's Yoga WASM is embedded as a binary data URL, not an outbound request.
-  if (/^data:application\/(?:octet-stream|wasm);base64,/i.test(url.href)) return
+  // Inline data and registered Blob URLs are resolved locally by fetch, without network I/O.
+  // This includes image data downloaded by the AI SDK and OpenTUI's embedded WASM.
+  if (url.protocol === "data:") return
+  if (url.protocol === "blob:" && resolveObjectURL(url.href)) return
   // Compiled Bun assets may use file URLs inside its virtual filesystem only.
   // Host/UNC paths and ordinary disk file URLs are deliberately excluded.
   if (url.protocol === "file:" && !url.hostname) {
     const root = process.platform === "win32" ? "B:\\~BUN\\root" : "/$bunfs/root"
     const file = (() => {
-      try { return fileURLToPath(url) } catch { return undefined }
+      try {
+        return fileURLToPath(url)
+      } catch {
+        return undefined
+      }
     })()
     if (file) {
       const relative = path.relative(root, file)

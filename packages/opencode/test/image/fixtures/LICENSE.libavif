@@ -1,0 +1,46 @@
+License and provenance for the two libavif test fixtures in this directory
+======================================================================
+
+These notices apply to white-1x1.avif and colors-animated-8bpc.avif only.
+The filenames in this directory preserve the upstream bytes; white-1x1.avif
+was renamed from upstream white_1x1.avif.
+
+Upstream commit: e760e8f05375cbd0c6d72065b18cac4542b13092
+Upstream fixture licensing and descriptions:
+https://github.com/AOMediaCodec/libavif/blob/e760e8f05375cbd0c6d72065b18cac4542b13092/tests/data/README.md
+Upstream license:
+https://github.com/AOMediaCodec/libavif/blob/e760e8f05375cbd0c6d72065b18cac4542b13092/LICENSE
+
+white-1x1.avif (305 bytes)
+Source: https://github.com/AOMediaCodec/libavif/blob/e760e8f05375cbd0c6d72065b18cac4542b13092/tests/data/white_1x1.avif
+SHA256: ea4e43d1f07e4c00de16c13afa32376111bb306e51f08212cf4c1b6064df3667
+
+colors-animated-8bpc.avif (1235 bytes)
+Source: https://github.com/AOMediaCodec/libavif/blob/e760e8f05375cbd0c6d72065b18cac4542b13092/tests/data/colors-animated-8bpc.avif
+SHA256: 2f8683d21725261f37f86e115f0c212cc52d0fefd3a2ddfcc4fa648c1859906d
+
+The upstream test-data README identifies both files as licensed the same as
+libavif. The applicable general BSD 2-Clause notice from that commit follows:
+
+Copyright 2019 Joe Drago. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+this list of conditions and the following disclaimer in the documentation
+and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
