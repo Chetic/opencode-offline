@@ -66,7 +66,7 @@ export namespace BunProc {
           return offlinePath
         }
       }
-      log.warn("offline mode enabled but package not found in offline deps", { pkg })
+      throw new Error(`Offline dependency ${pkg} is missing from the local bundle; no package download was attempted.`)
     }
 
     // Use lock to ensure only one install at a time

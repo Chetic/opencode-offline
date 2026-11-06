@@ -144,7 +144,7 @@ export namespace Ripgrep {
           return { filepath: offlinePath }
         }
       }
-      log.warn("offline mode enabled but ripgrep not found in offline deps")
+      throw new Error("Offline ripgrep is missing. Install the bundled local rg binary before starting; no download was attempted.")
     }
 
     const filepath = path.join(Global.Path.bin, "rg" + (process.platform === "win32" ? ".exe" : ""))

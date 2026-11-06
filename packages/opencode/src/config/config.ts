@@ -34,6 +34,7 @@ import { PackageRegistry } from "@/bun/registry"
 import { proxied } from "@/util/proxied"
 import { iife } from "@/util/iife"
 import { Control } from "@/control"
+import { Offline } from "@/offline"
 
 export namespace Config {
   const ModelId = z.string().meta({ $ref: "https://models.dev/model-schema.json#/$defs/Model" })
@@ -80,7 +81,7 @@ export namespace Config {
     // Managed config directory is enterprise-only and always overrides everything above.
     let result: Info = {}
     for (const [key, value] of Object.entries(auth)) {
-      if (value.type === "wellknown") {
+      if (value.type === "wellknown" && !Offline.isEnabled()) {
         process.env[value.key] = value.token
         log.debug("fetching remote config", { url: `${key}/.well-known/opencode` })
         const response = await fetch(`${key}/.well-known/opencode`)
@@ -171,7 +172,9 @@ export namespace Config {
         }
       }
 
-      deps.push(
+      // offline-fork: stdio MCP needs no config-directory npm install.
+      // Required provider/plugin packages must already be bundled and fail explicitly if absent.
+      if (!Offline.isEnabled()) deps.push(
         iife(async () => {
           const shouldInstall = await needsInstall(dir)
           if (shouldInstall) await installDependencies(dir)
@@ -266,6 +269,7 @@ export namespace Config {
   }
 
   export async function installDependencies(dir: string) {
+    if (Offline.isEnabled()) throw new Error("Offline mode does not install config dependencies. Preinstall required local packages before starting.")
     const pkg = path.join(dir, "package.json")
     const targetVersion = Installation.isLocal() ? "*" : Installation.VERSION
 

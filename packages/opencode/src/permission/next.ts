@@ -12,6 +12,8 @@ import os from "os"
 import z from "zod"
 
 export namespace PermissionNext {
+  // Local file mutations require a new approval for each exact tool call.
+  const perCall = new Set(["spark_files_replace_text", "spark_files_create_file"])
   const log = Log.create({ service: "permission" })
 
   function expand(pattern: string): string {
@@ -136,7 +138,10 @@ export namespace PermissionNext {
       const s = await state()
       const { ruleset, ...request } = input
       for (const pattern of request.patterns ?? []) {
-        const rule = evaluate(request.permission, pattern, ruleset, s.approved)
+        const configured = evaluate(request.permission, pattern, ruleset)
+        const rule = perCall.has(request.permission)
+          ? { ...configured, action: configured.action === "deny" ? "deny" : "ask" }
+          : evaluate(request.permission, pattern, ruleset, s.approved)
         log.info("evaluated", { permission: request.permission, pattern, action: rule })
         if (rule.action === "deny")
           throw new DeniedError(ruleset.filter((r) => Wildcard.match(request.permission, r.permission)))
@@ -170,13 +175,14 @@ export namespace PermissionNext {
       const s = await state()
       const existing = s.pending[input.requestID]
       if (!existing) return
+      const reply = perCall.has(existing.info.permission) && input.reply === "always" ? "once" : input.reply
       delete s.pending[input.requestID]
       Bus.publish(Event.Replied, {
         sessionID: existing.info.sessionID,
         requestID: existing.info.id,
-        reply: input.reply,
+        reply,
       })
-      if (input.reply === "reject") {
+      if (reply === "reject") {
         existing.reject(input.message ? new CorrectedError(input.message) : new RejectedError())
         // Reject all other pending permissions for this session
         const sessionID = existing.info.sessionID
@@ -193,11 +199,11 @@ export namespace PermissionNext {
         }
         return
       }
-      if (input.reply === "once") {
+      if (reply === "once") {
         existing.resolve()
         return
       }
-      if (input.reply === "always") {
+      if (reply === "always") {
         for (const pattern of existing.info.always) {
           s.approved.push({
             permission: existing.info.permission,
@@ -211,6 +217,7 @@ export namespace PermissionNext {
         const sessionID = existing.info.sessionID
         for (const [id, pending] of Object.entries(s.pending)) {
           if (pending.info.sessionID !== sessionID) continue
+          if (perCall.has(pending.info.permission)) continue
           const ok = pending.info.patterns.every(
             (pattern) => evaluate(pending.info.permission, pattern, s.approved).action === "allow",
           )
