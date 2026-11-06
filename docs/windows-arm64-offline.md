@@ -82,6 +82,29 @@ at that endpoint. Set `share: "disabled"`, `autoupdate: false`, `plugin: []`, an
 disable unused web tools and remote MCP servers. This fork predates newer config
 fields such as `subagent_depth`; validate copied configuration against its schema.
 
+## Paste images on Windows
+
+Use **Alt+V**, or click **Alt+V paste image** in the normal prompt footer, after
+copying an image bitmap, an image file in Explorer, or a local image path. Windows
+defaults include both `ctrl+v` and `alt+v`; a terminal host can intercept Ctrl+V
+before OpenCode receives it. No global terminal settings need to be changed.
+Ordinary clipboard text is still inserted as text. Empty clipboard input produces
+a short hint instead of silently doing nothing.
+
+The Windows clipboard reader supports `CF_HDROP` file lists (up to 16 files) as
+well as bitmaps. Local image paths accept matching single or double quotes,
+including spaces and Unicode names. Windows PowerShell runs hidden in STA mode
+with UTF-8 output, a timeout and a bounded output buffer. File content reads are
+bounded by the existing 64 MiB image-input limit and use the existing image codec
+for validation and normalization before attachment.
+
+Image files must be resident on a local fixed drive. UNC/device paths, mapped
+network drives, remote URLs, symlinks/junctions and online-only Cloud Files are
+rejected before content reads. Download an online-only image in Explorer first;
+the attachment helper does not request hydration. Failed attachments show a
+readable error. Terminal file-drop transport depends on the terminal host; when
+it only inserts a path, copying that path and using Alt+V is the explicit route.
+
 ## Behavior and validation
 
 In offline mode, missing web assets return HTTP 503 instead of proxying the
@@ -116,13 +139,26 @@ headers are committed. Local AVIF decoding is bundled as WASM; PNG/JPEG output i
 passed to the selected model. The same validation covers prompt attachments,
 file reads, and image results from tools and MCP. Invalid base64, damaged images,
 MIME mismatches, and oversized inputs produce a readable HTTP 400; the terminal
-restores a failed draft. Animated AVIF uses its first frame.
+includes failed-draft restoration logic. Animated AVIF uses its first frame.
 
 The image update passed 47 targeted source tests, compiled API checks with mixed
 valid/invalid concurrent requests, and real local-model AVIF/PNG inference. The
 tests use synthetic data and two public libavif fixtures; their source and BSD
 notice are included beside the fixtures. These checks do not establish image
 support for every model or replace an operating-system network sandbox.
+
+The subsequent Windows clipboard/path update passed the opencode typecheck and
+all **41 image tests with 106 assertions**, including 33 focused clipboard,
+path and keybinding tests. The **35 source fetch-guard checks** also passed with
+zero redirect-destination requests. Native PowerShell UTF-8 serialization of a
+synthetic Unicode path and the metadata-to-AVIF-to-PNG path were checked without
+reading or changing the system clipboard. Both native CLI and web assets were
+rebuilt with Bun 1.4.4. These tests do not claim a physically automated drag-and-drop
+test or broad terminal-host compatibility.
+Separate controlled native clipboard checks passed for an Explorer-style AVIF
+file list with Unicode/spaces, a PNG bitmap, and a quoted text path; the prior
+clipboard data was restored. They used public/synthetic fixtures and did not
+test physical drag events or delivery of Alt+V by every terminal host.
 
 Run the guard check from `packages/opencode`:
 
